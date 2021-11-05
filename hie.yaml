@@ -1,0 +1,13 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "HAL:lib"
+
+    - path: "./app/Main.hs"
+      component: "HAL:exe:HAL-exe"
+
+    - path: "./app/Paths_HAL.hs"
+      component: "HAL:exe:HAL-exe"
+
+    - path: "./test"
+      component: "HAL:test:HAL-test"
