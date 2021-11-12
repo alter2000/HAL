@@ -1,0 +1,89 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.34.4.
+--
+-- see: https://github.com/sol/hpack
+
+name:           HAL
+version:        0.1.0.0
+synopsis:       interpreter for a minimalist dialect of LISP
+description:    Please see the README on GitHub at <https://github.com/EpitechIT2020/B-FUN-501-TIR-5-1-HAL-besart.cerri#readme>
+homepage:       https://github.com/EpitechPromo2024/B-FUN-501-MPL-5-1-HAL-jori.bashllari#readme
+bug-reports:    https://github.com/EpitechPromo2024/B-FUN-501-MPL-5-1-HAL-jori.bashllari/issues
+author:         Jor Bashllari
+maintainer:     altnate2000@gmail.com
+copyright:      me
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+    stdlib.scm
+
+source-repository head
+  type: git
+  location: https://github.com/EpitechPromo2024/B-FUN-501-MPL-5-1-HAL-jori.bashllari
+
+library
+  exposed-modules:
+      ArithMonad
+      Lib.AST
+      Lib.Env
+      Lib.Expr
+      Lib.Parser
+      Parser.ParseError
+      Parser.Parser
+      RecursionSchemes
+      Types.AST
+      Types.Cofree
+      Types.Comonad
+      Types.Exceptions
+      Types.Interp
+      Types.Pos
+      Types.Valid
+      Util
+  other-modules:
+      Paths_HAL
+  hs-source-dirs:
+      src
+  ghc-options: -Wall
+  build-depends:
+      base >=4.7 && <5
+    , containers
+    , haskeline
+    , mtl
+  default-language: Haskell2010
+
+executable HAL-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_HAL
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:
+      HAL
+    , base >=4.7 && <5
+    , containers
+    , haskeline
+    , mtl
+  default-language: Haskell2010
+
+test-suite HAL-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_HAL
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      HAL
+    , base >=4.7 && <5
+    , containers
+    , haskeline
+    , hedgehog
+    , hspec
+    , mtl
+  default-language: Haskell2010

@@ -1,6 +1,6 @@
 name:       HAL
 version:    0.1.0.0
-github:     "EpitechIT2020/B-FUN-501-TIR-5-1-HAL-besart.cerri"
+github:     "EpitechPromo2024/B-FUN-501-MPL-5-1-HAL-jori.bashllari"
 license:    BSD3
 author:     "Jor Bashllari"
 maintainer: "altnate2000@gmail.com"
@@ -29,7 +29,6 @@ library:
   source-dirs: src
   ghc-options:
   - -Wall
-  - -Wno-unused-imports
 
 executables:
   HAL-exe:
@@ -40,7 +39,6 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     - -Wall
-    - -Wno-unused-imports
     dependencies:
     - HAL
 
@@ -54,3 +52,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - HAL
+    - hedgehog
+    - hspec
