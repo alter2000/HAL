@@ -9,6 +9,7 @@ copyright:  "me"
 extra-source-files:
 - README.md
 - ChangeLog.md
+- stdlib.scm
 
 # Metadata used when publishing your package
 synopsis: interpreter for a minimalist dialect of LISP
@@ -23,6 +24,7 @@ dependencies:
 - base >= 4.7 && < 5
 - haskeline
 - containers
+- mtl
 # - pretty-simple
 
 library:
