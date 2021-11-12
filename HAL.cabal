@@ -31,7 +31,6 @@ library
       Lib.AST
       Lib.Env
       Lib.Expr
-      Lib.Parser
       Parser.ParseError
       Parser.Parser
       RecursionSchemes
