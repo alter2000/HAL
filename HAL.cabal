@@ -27,10 +27,10 @@ source-repository head
 
 library
   exposed-modules:
-      ArithMonad
       Lib.AST
       Lib.Env
       Lib.Expr
+      Parser.AST
       Parser.ParseError
       Parser.Parser
       RecursionSchemes

@@ -5,6 +5,7 @@ module Types.AST
 
 
 import Data.Functor.Classes
+import Control.Arrow
 import Data.List as L
 import qualified Data.Map as M
 
@@ -25,7 +26,6 @@ data ASTF r = Atom !VarName
             | List ![r]
 -- Instances {{{
 instance Functor ASTF where
-  -- TODO: handle every constructor
   fmap _ (Atom a) = Atom a
   fmap _  (Str a) = Str  a
   fmap _ (Bool a) = Bool a
@@ -45,8 +45,6 @@ instance Traversable ASTF where
   traverse _  (Int a) = pure $ Int a
   traverse f (List r) = List <$> traverse f r
 
-instance Show f => Show (ASTF f) where showsPrec = showsPrec1
-
 instance Show1 ASTF where
   liftShowsPrec _ _ _ (Atom a) = showString a
   liftShowsPrec _ _ _  (Int s) = shows s
@@ -56,8 +54,8 @@ instance Show1 ASTF where
   liftShowsPrec f _ p (List a) = showChar '(' . showList' (showChar ')') f p a
 
 showList' :: ShowS -> (a -> b -> ShowS) -> a -> [b] -> ShowS
-showList' end pf p a = foldr (.) end
-  (L.intersperse (showChar ' ') $ pf p <$> a)
+showList' end pf p =
+  fmap (pf p) >>> L.intersperse (showChar ' ') >>> foldr (.) end
 -- }}}
 
 
@@ -79,4 +77,8 @@ int = Fix . Int
 
 bool :: Bool -> AST'
 bool = Fix . Bool
+
+quote :: AST' -> AST'
+quote a = list [atom "quote", a]
+
 -- }}}

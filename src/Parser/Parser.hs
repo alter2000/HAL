@@ -2,7 +2,7 @@ module Parser.Parser where
 -- TODO: TemplateHaskell QQ?
 
 import Data.Char
-import Data.Function
+import Data.Functor
 import Control.Applicative
 import Control.Monad
 
@@ -11,7 +11,7 @@ import Parser.ParseError
 
 -- Types {{{
 -- | Wrapper type for our parser, just '(->)' 'Derivs'.
-newtype Parser d v = Parser { runParser :: d -> Result d v }
+newtype Parser d v = P { runParser :: d -> Result d v }
 
 -- | Base typeclass linking 'Parser' and the resulting constructs.
 -- Only these primitive elements need to be implemented in order to get
@@ -28,18 +28,18 @@ instance Derivs d => Functor (Result d) where
   fmap _ (NoParse    pe) = NoParse pe
 
 instance Derivs d => Functor (Parser d) where
-  fmap f (Parser p) = Parser $ fmap f . p
+  fmap f (P p) = P $ fmap f . p
 
 instance Derivs d => Applicative (Parser d) where
-  pure x = Parser $ Parsed x <*> nullError
-  (Parser p1) <*> (Parser p2) = Parser $ \ds -> case p1 ds of
+  pure x = P $ Parsed x <*> nullError
+  (P p1) <*> (P p2) = P $ \ds -> case p1 ds of
     Parsed f d _ -> f <$> p2 d
     NoParse pe -> NoParse pe
 
 instance Derivs d => Alternative (Parser d) where
-  empty = Parser $ \ds -> NoParse $ msgError (dvPos ds) "failed alternative"
+  empty = P $ \ds -> NoParse $ msgError (dvPos ds) "failed alternative"
 
-  Parser p1 <|> Parser p2 = Parser $ \ds -> case p1 ds of
+  P p1 <|> P p2 = P $ \ds -> case p1 ds of
     r@Parsed{} -> r
     NoParse e1 -> case p2 ds of
       Parsed v r e2 -> Parsed v r $ e1 <> e2
@@ -47,49 +47,49 @@ instance Derivs d => Alternative (Parser d) where
 
 instance Derivs d => Monad (Parser d) where
   return = pure
-  Parser p1 >>= f = Parser $ \ds -> case p1 ds of
+  P p1 >>= f = P $ \ds -> case p1 ds of
     Parsed val r e1 -> case runParser (f val) r of
       Parsed v r' e2 -> Parsed v r' $ e1 <> e2
       NoParse     e2 -> NoParse     $ e1 <> e2
     NoParse e -> NoParse e
 
 instance Derivs d => MonadFail (Parser d) where
-  fail [] = Parser $ NoParse . nullError
-  fail msg = Parser (\ds -> NoParse (msgError (dvPos ds) msg))
+  fail [] = P $ NoParse . nullError
+  fail msg = P (\ds -> NoParse (msgError (dvPos ds) msg))
 
 
 -- | Obtain 'Derivs' for the current position.
 getDerivs :: Derivs d => Parser d d
-getDerivs = Parser $ join Parsed <*> nullError
+getDerivs = P $ join Parsed <*> nullError
 
 -- | Get the current position.
 getPos :: Derivs d => Parser d Pos
-getPos = Parser $ (dvPos >>= Parsed) <*> nullError
+getPos = P $ (dvPos >>= Parsed) <*> nullError
 
 -- | Change 'Derivs' from the current position onwards.
 setDerivs :: Derivs d => d -> Parser d ()
-setDerivs ds = Parser $ Parsed () ds . nullError
+setDerivs ds = P $ Parsed () ds . nullError
 
 -- }}}
 
 -- Parsing combinators {{{
 
--- | @satisfy p pred@ consumes and returns the result of @p@ if it satisfies
--- @pred@.
+-- | @satisfy p pred@ consumes and returns the result of @p@
+-- if it satisfies @pred@.
 satisfy :: Derivs d => Parser d v -> (v -> Bool) -> Parser d v
-satisfy (Parser p) test = Parser $ \ds -> case p ds of
+satisfy (P p) test = P $ \ds -> case p ds of
   r@(Parsed v _ _) -> if test v then r else NoParse $ nullError ds
   n@NoParse{} -> n
 
 -- | @followedBy p@ succeeds if @p@ succeeds, without consuming any input.
 followedBy :: Derivs d => Parser d v -> Parser d v
-followedBy (Parser p) = Parser $ \ds -> case p ds of
+followedBy (P p) = P $ \ds -> case p ds of
   Parsed v _ _ -> Parsed v ds $ nullError ds
   err -> err
 
 -- | @notFollowedBy p@ fails if @p@ succeeds, without consuming any input.
 notFollowedBy :: Derivs d => Parser d v -> Parser d ()
-notFollowedBy (Parser p) = Parser $ \ds -> case p ds of
+notFollowedBy (P p) = P $ \ds -> case p ds of
   Parsed{}  -> NoParse $ nullError ds
   NoParse{} -> Parsed () ds $ nullError ds
 
@@ -101,22 +101,41 @@ eofError ds = msgError (dvPos ds) "end of input"
 
 -- | @expected "item"@ fails with @'Types.ParseError.Expected' "item"@.
 expected :: Derivs d => String -> Parser d v
-expected desc = Parser (\ds -> NoParse $ expError (dvPos ds) desc)
+expected desc = P (\ds -> NoParse $ expError (dvPos ds) desc)
 
--- | @unexpected "item"@ fails with @'Types.ParseError.Message' "unexpected item"@.
+-- | @unexpected "item"@ fails with
+-- @'Types.ParseError.Message' "unexpected item"@.
 unexpected :: Derivs d => String -> Parser d v
 unexpected = fail . ("unexpected " <>)
 
+-- | Drop a parser's output without failing.
+option :: Derivs d => Parser d v -> Parser d ()
+option p = ignore p <|> pure ()
+
+-- | Drop a parser's output.
+ignore :: Derivs d => Parser d v -> Parser d ()
+ignore = ($> ())
+
+-- | Surround a parser with another one whose output will be discarded.
+around :: Derivs d => Parser d a -> Parser d v -> Parser d v
+i `around` p = i *> p <* i
+
+sepBy1 :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
+sepBy1 p psep = liftA2 (:) p $ many (psep *> p)
+
+-- | @a `sepBy` b@ parses @a@ followed by @b@, discarding output from @b@.
+sepBy :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
+sepBy p psep = sepBy1 p psep <|> pure []
 --- }}}
 
 -- Annotations {{{
 -- | Annotates a parser with what to be parsed.
--- The resulting parser yields an 'Types.ParseError.Expected' error message if
--- parse is unsuccessful and no error information is already available
--- indicating a position farther right in the source code.
+-- The resulting parser yields an 'Types.ParseError.Expected' error message
+-- if parse is unsuccessful and no error information is already available,
+-- indicating a position farther right in the source.
 infixl 1 <?>
 (<?>) :: Derivs d => Parser d v -> String -> Parser d v
-(Parser p) <?> desc = Parser $ go <*> p
+(P p) <?> desc = P $ go <*> p
   where
     go ds (Parsed v r err) = Parsed v r $ insert ds err
     go ds (NoParse err)    = NoParse    $ insert ds err
@@ -127,7 +146,7 @@ infixl 1 <?>
 -- | Like '(<?>)' but unconditionally overrides existing error information.
 infixl 1 <?!>
 (<?!>) :: Derivs d => Parser d v -> String -> Parser d v
-(Parser p) <?!> desc = Parser $ go <*> p
+(P p) <?!> desc = P $ go <*> p
   where
     go ds (Parsed v r err) = Parsed v r $ insert ds err
     go ds (NoParse err)    = NoParse    $ insert ds err
@@ -137,7 +156,7 @@ infixl 1 <?!>
 -- Char parsers {{{
 -- | Matches any single character.
 anyChar :: Derivs d => Parser d Char
-anyChar = Parser dvChar
+anyChar = P dvChar
 
 -- | @char c@ matches only @c@.
 char :: Derivs d => Char -> Parser d Char
@@ -146,12 +165,20 @@ char ch = satisfy anyChar (== ch) <?> show ch
 -- | @oneOf s@ matches any character in @s@.
 oneOf :: Derivs d => String -> Parser d Char
 oneOf chs = satisfy anyChar (`elem` chs)
-      <?> ("any character in " ++ show chs)
+      <?> ("any character in " <> show chs)
+
+-- | @someOf s@ parses 1 or more characters in @s@.
+someOf :: Derivs d => String -> Parser d String
+someOf = some . oneOf
+
+-- | @manyOf s@ parses 0 or more characters in @s@.
+manyOf :: Derivs d => String -> Parser d String
+manyOf = many . oneOf
 
 -- | @noneOf s@ matches any character not in @s@.
 noneOf :: Derivs d => String -> Parser d Char
 noneOf chs = satisfy anyChar (`notElem` chs)
-       <?> ("any character not in " ++ show chs)
+       <?> ("any character not in " <> show chs)
 
 -- | @string s@ matches all the characters in @s@ in sequence.
 string :: Derivs d => String -> Parser d String
@@ -180,11 +207,15 @@ newline = char '\n'
 
 -- | Match any whitespace character.
 space :: Derivs d => Parser d Char
-space = satisfy anyChar isSpace <?> "whitespace character"
+space = satisfy anyChar isSpace <?> "whitespace"
 
 -- | Match a sequence of zero or more whitespace characters.
 spaces :: Derivs d => Parser d String
 spaces = many space
+
+-- | Match a sequence of one or more whitespace characters.
+whitespace :: Derivs d => Parser d String
+whitespace = some space <?> "whitespace delimiter"
 
 -- | Match the end of file.
 eof :: Derivs d => Parser d ()
