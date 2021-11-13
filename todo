@@ -2,28 +2,27 @@
 
 - [.] parsing
   - [.] packrat parser
-    - [.] parser
-    - [.] combinators
+    - [x] parser
+    - [x] combinators
+    - [x] text position
     - [ ] tests
-    - [.] text position
-	- [ ] Deriv datatype not typeclass
-	- [ ] bonus: QQ TemplateHaskell ()
-  - [ ] AST building
-    - [ ] smart constructors
+    - [x] Deriv datatype not typeclass (**NOTE**: no need, memoization on instance implementor)
+    - [ ] bonus: QQ TemplateHaskell ()
+  - [.] AST building
+    - [.] smart constructors
 - [ ] evaluation
   - [.] AST error handling
   - [ ] LISP -> Haskell types
   - [ ] tests
-  - [ ] rewrite rules
-	- [ ] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
-	- [ ] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
-	- [ ] `'(a b c)` -> `(quote (a b c))`
-	- [ ] `(a . b . c)` -> `(a b c)`
+  - [.] rewrite rules
+    - [ ] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
+    - [ ] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
+    - [.] `'(a b c)` -> `(quote (a b c))`
+      - [ ] what about `'"str"`/`'1`?
+    - [ ] `(a . b . c)` -> `(a b c)`
 - [ ] general UX
-  - [x] filename in syntax error
-  - [ ] thread `Pos` into error sites?
+  - [x] `Pos` in syntax errors
+  - [ ] `Pos` in runtime errors
+    - [ ] thread `Pos` into AST? `Cofree`?
   - [.] REPL
   - [x] `stdlib.scm`
-
-
-## STDLIB OVER EVAL?
