@@ -7,11 +7,11 @@ module Types.AST
 import Data.Functor.Classes
 import Control.Arrow
 import Data.List as L
-import qualified Data.Map as M
+-- import qualified Data.Map as M
 
 import RecursionSchemes ( Fix(..) )
 import Types.Cofree as C
-import Types.Pos
+-- import Types.Pos
 -- import Types.Exceptions ( HALError )
 
 type VarName = String
@@ -24,6 +24,7 @@ data ASTF r = Atom !VarName
             | Str  !String
           -- DUPES?
             | List ![r]
+            | DottedList ![r] !r
 -- Instances {{{
 instance Functor ASTF where
   fmap _ (Atom a) = Atom a
@@ -31,6 +32,7 @@ instance Functor ASTF where
   fmap _ (Bool a) = Bool a
   fmap _  (Int a) = Int a
   fmap f (List r) = List $ f <$> r
+  fmap f (DottedList r h) = DottedList (f <$> r) (f h)
 
 instance Foldable ASTF where
   foldMap _ (Atom _) = mempty
@@ -38,12 +40,14 @@ instance Foldable ASTF where
   foldMap _ (Bool _) = mempty
   foldMap _  (Int _) = mempty
   foldMap f (List r) = foldMap f r
+  foldMap f (DottedList r h) = foldMap f r <> f h
 instance Traversable ASTF where
   traverse _ (Atom a) = pure $ Atom a
   traverse _  (Str a) = pure $ Str a
   traverse _ (Bool a) = pure $ Bool a
   traverse _  (Int a) = pure $ Int a
   traverse f (List r) = List <$> traverse f r
+  traverse f (DottedList r h) = DottedList <$> traverse f r <*> f h
 
 instance Show1 ASTF where
   liftShowsPrec _ _ _ (Atom a) = showString a
@@ -52,6 +56,7 @@ instance Show1 ASTF where
     (\a -> if a == '"' then "\\\"" else [a]) s) . showChar '"'
   liftShowsPrec _ _ _ (Bool a) = showString $ if a then "#t" else "#f"
   liftShowsPrec f _ p (List a) = showChar '(' . showList' (showChar ')') f p a
+  liftShowsPrec pf _ p (DottedList a h) = showChar '(' . showList'
 
 showList' :: ShowS -> (a -> b -> ShowS) -> a -> [b] -> ShowS
 showList' end pf p =
@@ -80,5 +85,8 @@ bool = Fix . Bool
 
 quote :: AST' -> AST'
 quote a = list [atom "quote", a]
+
+dlist :: [AST'] -> AST' -> AST'
+dlist a = Fix . DottedList a
 
 -- }}}

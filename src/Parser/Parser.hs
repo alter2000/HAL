@@ -99,6 +99,10 @@ nullError ds = ParseError (dvPos ds) []
 eofError :: Derivs d => d -> ParseError
 eofError ds = msgError (dvPos ds) "end of input"
 
+-- | @failAt p msg@ fails a parse at position @p@ with a message @msg@.
+failAt :: Derivs d => Pos -> String -> Parser d v
+failAt p msg = P $ const $ NoParse $ msgError p msg
+
 -- | @expected "item"@ fails with @'Types.ParseError.Expected' "item"@.
 expected :: Derivs d => String -> Parser d v
 expected desc = P (\ds -> NoParse $ expError (dvPos ds) desc)
@@ -185,6 +189,11 @@ string :: Derivs d => String -> Parser d String
 string s = p s <?> show s
   where p = foldr ((*>) . char) (pure [])
 
+-- | @stringFrom ss@ matches any string in @ss@. If any strings in @ss@ are
+-- prefixes of other strings in @ss@, they must appear later in the list.
+stringFrom :: Derivs d => [String] -> Parser d String
+stringFrom = foldr ((<|>) . string) empty
+
 -- | Match any letter.
 letter :: Derivs d => Parser d Char
 letter = satisfy anyChar isAlpha <?> "letter"
@@ -220,4 +229,8 @@ whitespace = some space <?> "whitespace delimiter"
 -- | Match the end of file.
 eof :: Derivs d => Parser d ()
 eof = notFollowedBy anyChar <?> "end of input"
+
+-- | Match the end of file but don't change info.
+eof' :: Derivs d => Parser d ()
+eof' = notFollowedBy anyChar
 -- }}}

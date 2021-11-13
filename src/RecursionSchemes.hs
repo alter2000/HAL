@@ -24,7 +24,6 @@ import Control.Monad ( (<=<) )
 
 -- import Types.Classes
 import Types.Cofree
-import Types.Comonad
 
 
 -- Plain Fixpoint Functor, cata/anamorphisms {{{

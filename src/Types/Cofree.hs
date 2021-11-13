@@ -3,6 +3,8 @@
 module Types.Cofree
   ( Cofree(..)
   , dep
+  , Comonad(..)
+  , ComonadTrans(..)
   )
   where
 
@@ -10,7 +12,21 @@ import Data.Functor.Classes
 import Control.Applicative ( Alternative(..) )
 import Control.Monad ( ap )
 
-import Types.Comonad
+class Functor c => Comonad c where
+  extract :: c a -> a
+
+  duplicate :: c a -> c (c a)
+  duplicate = extend id
+
+  extend, (<<=) :: (c a -> b) -> c a -> c b
+  extend f = fmap f . duplicate
+  (<<=) = extend
+
+  (=>>) :: c a -> (c a -> b) -> c b
+  (=>>) = flip extend
+
+class ComonadTrans t where
+  lower :: t w r -> w r
 
 -- | 'Cofree' Attribute wrapper similar to 'RecursionSchemes.Fix'.
 data Cofree f a = a :< f (Cofree f a)

@@ -9,6 +9,7 @@ import Data.Maybe
 import Data.Foldable
 
 import Types.AST
+import RecursionSchemes
 import Types.Pos
 import Parser.Parser
 import Parser.ParseError
@@ -16,13 +17,14 @@ import Parser.ParseError
 data ASTDerivs = ASTDerivs
   { adAtom   :: Result ASTDerivs AST'
   , adInt    :: Result ASTDerivs AST'
-  , adBool   :: Result ASTDerivs AST'
+  -- , adBool   :: Result ASTDerivs AST'
   , adString :: Result ASTDerivs AST'
   , adList   :: Result ASTDerivs AST'
   , adQuote  :: Result ASTDerivs AST'
 
   , adIgnore :: Result ASTDerivs String
   , adElem  :: Result ASTDerivs AST'
+  , adHash   :: Result ASTDerivs AST'
 
   , adChar   :: Result ASTDerivs Char
   , adPos    :: Pos
@@ -41,7 +43,7 @@ evalDerivs pos s = d where
     , adPos    = pos
     , adAtom   = pAtom d
     , adInt    = pInt d
-    , adBool   = pBool d
+    , adHash   = pHash d
     , adString = pString d
     , adList   = pList d
 
@@ -54,14 +56,13 @@ parse :: FilePath -> String -> Either ParseError AST'
 parse fname s = case pExpr $ evalDerivs (Pos fname 1 1) s of
     Parsed v _ _ -> Right v
     NoParse e -> Left e
-  where P pExpr = P adIgnore *> P pElem
+  where P pExpr = P adIgnore *> P adElem
 
 parseFile :: FilePath -> String -> Either ParseError [AST']
 parseFile fname s = case pExpr $ evalDerivs (Pos fname 1 1) s of
     Parsed v _ _ -> Right v
     NoParse e -> Left e
-  where P pExpr = P adIgnore *>
-          some (P pElem <* P adIgnore) <* eof
+  where P pExpr = P adIgnore *> some (P adElem <* P adIgnore) <* eof'
 
 pIgnore :: ASTDerivs -> Result ASTDerivs String
 P pIgnore = concat <$>
@@ -69,37 +70,53 @@ P pIgnore = concat <$>
               <?> "non-code"
 
 pElem :: ASTDerivs -> Result ASTDerivs AST'
-P pElem = asum [P adBool, P adInt, P adString, P adQuote, P adAtom, P adList]
+P pElem = asum [P adHash, P adInt, P adString, P adQuote, P adAtom, P adList]
 
--- | Atoms are strings of any non-whitespace character starting with a letter
+-- | Atoms are strings of alphanumeric characters (+ some symbols)
+-- starting with a letter or symbol
 pAtom :: ASTDerivs -> Result ASTDerivs AST'
 P pAtom = do
-  prefix <- some $ letter <|> oneOf "?!$%^&*_+-=,.#"
-  middle <- many $ alphaNum <|> oneOf "?!$%^&*_+-=#,./"
+  prefix <- some $ letter <|> oneOf "?!$%^&*_+-=#,.<>/"
+  middle <- many $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/"
   suffix <- optional $ char '\''
-  let tok = prefix <> middle <> maybeToList suffix
-  if tok == "#f" || tok == "#t" then unexpected "boolean" <?> "atom"
-                                else pure (atom tok) <?> "atom"
+  analyzePAtom $ prefix <> middle <> maybeToList suffix
+
+analyzePAtom :: [Char] -> Parser ASTDerivs AST'
+analyzePAtom tok = case tok of
+    "."  -> unexpected "dotted list"
+    _    -> pure (atom tok)
+  <?> "atom"
 
 pInt :: ASTDerivs -> Result ASTDerivs AST'
 P pInt = int . read <$> some digit <?> "integer"
 
+pHash :: ASTDerivs -> Result ASTDerivs AST'
+P pHash = P pBool -- <|> char '#' *> P pCustomNumber/Macro/Etc
+
 pBool :: ASTDerivs -> Result ASTDerivs AST'
-P pBool = string "#f" $> bool False
-      <|> string "#t" $> bool True
-      <?> "boolean"
+P pBool = string "#f" $> bool False <|> string "#t" $> bool True <?> "boolean"
 
 pString :: ASTDerivs -> Result ASTDerivs AST'
 P pString = str <$> (char '"' `around` many (noneOf "\"\n")) <?> "string"
 
 pList :: ASTDerivs -> Result ASTDerivs AST'
-P pList = list <$>
-  (char '(' *> P adIgnore `around` sepBy (P adElem) (P adIgnore) <* char ')')
-  -- <|> TODO: dottedList
+P pList = parens dottedList
+  <|> list <$> parens (P adElem `sepBy` P adIgnore)
   <?> "list"
 
+dottedList :: Parser ASTDerivs AST'
+dottedList = do
+  xs <- P adElem `sepBy` P adIgnore
+  x <- P adIgnore *> char '.' *> P adIgnore `around` P adElem
+  case x of
+    Fix(List xs') -> pure (list $ xs<>xs') <?> "cons'd dotted list"
+    _ -> pure (dlist xs x) <?> "dotted list"
+
+parens :: Parser ASTDerivs a -> Parser ASTDerivs a
+parens p = char '(' *> P adIgnore `around` p <* char ')' <?> "parentheses"
+
 pQuote :: ASTDerivs -> Result ASTDerivs AST'
-P pQuote = quote <$> (char '\'' *> (P adList <|> P adAtom)) <?> "quote"
+P pQuote = quote <$> (char '\'' *> P adElem) <?> "quote"
 
 pComment :: ASTDerivs -> Result ASTDerivs String
 P pComment = char ';' *> many (noneOf "\n") <?> "comment"
