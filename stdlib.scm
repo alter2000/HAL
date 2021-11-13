@@ -77,7 +77,43 @@
 (define (flip fn)
   (lambda (x y) (fn y x)))
 
+;; car/cdr combos {{{
+(define (caar x) (car (car x)))
+(define (cadr x) (car (cdr x)))
+(define (cadar x) (car (cdr (car x))))
+(define (caddr x) (car (cdr (cdr x))))
+(define (caddar x) (car (cdr (cdr (car x)))))
+;; }}}
+
 (define (fact x)
   (if (eq? x 1)
     1
     (* x (fact (- x 1)))))
+
+(define (eval expr env)
+  (cond ((atom? expr) (find expr env))
+
+        ((atom? (car expr))
+         (cond
+           ((eq? (car expr) 'quote)
+            (cadr expr))
+           ((eq? (car expr) 'atom?)
+            (atom? (eval (cadr expr) env)))
+           ((eq? (car expr) 'eq?)
+            (eq? (eval (cadr expr) env)
+                 (eval (caddr expr) env)))
+           ((eq? (car expr) 'car)
+            (car (eval (cadr expr) env)))
+           ((eq? (car expr) 'cdr)
+            (cdr (eval (cadr expr) env)))
+           ((eq? (car expr) 'cons)
+            (cons (eval (cadr expr) env)
+                  (eval (caddr expr) env)))
+           ((eq? (car expr) 'cond)
+            (eval-cond (cdr expr) env))
+           (#t (eval (cons (find (car expr) env)
+                           (cdr expr))
+                     env))
+           ))
+
+    ))

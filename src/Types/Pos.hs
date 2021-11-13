@@ -4,9 +4,9 @@ module Types.Pos where
 
 -- | Basic position indicator.
 data Pos = Pos
-  { posFile :: !String -- ^ filename
-  , posLine :: !Int    -- ^ line number
-  , posCol  :: !Int    -- ^ column number
+  { posFile :: !FilePath -- ^ filename
+  , posLine :: !Int      -- ^ line number
+  , posCol  :: !Int      -- ^ column number
   }
 
 -- | Blank starting postition.
