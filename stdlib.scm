@@ -148,5 +148,29 @@
                      env))
            ))
 
+        ((eq? (caar expr) 'define)
+         (eval (cons (caddar expr) (cdr expr))
+               (cons (list (cadar expr) (car expr))
+                     env)
+               env))
+
+        ((eq? (caar expr) 'lambda)
+         (eval (caddar expr)
+               (append (zip (cadar expr)
+                            (eval-list (cdr expr) env)))))
     ))
+
+(define (eval-cond c env)
+  (if (eval (caar c))
+    (eval (cadar c) env)
+    (eval-cond (cdr c) env)))
+
+(define (eval-list l env)
+  (if (null? l)
+    '()
+    (cons (eval (car l) env)
+          (eval-list (cdr l) env))))
 ;; }}}
+
+(define (test arg1 . args) args)
+(define (list . args) args)
