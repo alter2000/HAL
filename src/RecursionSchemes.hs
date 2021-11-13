@@ -22,7 +22,6 @@ import Data.Function (on)
 import Control.Arrow ( (>>>), Arrow((&&&)) )
 import Control.Monad ( (<=<) )
 
--- import Types.Classes
 import Types.Cofree
 
 

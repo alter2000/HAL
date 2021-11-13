@@ -116,9 +116,9 @@
 (define (merge-sort xs)
   (cond ((null? xs) '())
         ((null? (cdr xs)) xs)
-        (#t (let ((xss . (split-half xs '() '()))
+        (#t (let ((xss (split-half xs '() '())))
                   (merge-lists (merge-sort (car xss))
-                               (merge-sort (cdr xss))))))))
+                               (merge-sort (cdr xss)))))))
 
 
 ;; biggest boi

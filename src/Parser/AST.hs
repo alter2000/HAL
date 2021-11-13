@@ -5,7 +5,6 @@ module Parser.AST
 
 import Control.Applicative
 import Data.Functor
-import Data.Maybe
 import Data.Foldable
 
 import Types.AST
@@ -78,14 +77,10 @@ pAtom :: ASTDerivs -> Result ASTDerivs AST'
 P pAtom = do
   prefix <- some $ letter <|> oneOf "?!$%^&*_+-=#,.<>/"
   middle <- many $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/"
-  suffix <- optional $ char '\''
-  analyzePAtom $ prefix <> middle <> maybeToList suffix
-
-analyzePAtom :: [Char] -> Parser ASTDerivs AST'
-analyzePAtom tok = case tok of
-    "."  -> unexpected "dotted list"
-    _    -> pure (atom tok)
-  <?> "atom"
+  let tok = prefix <> middle
+  case tok of
+    "." -> unexpected "dotted list" <?> "atom"
+    _   -> pure (atom tok) <?> "atom"
 
 pInt :: ASTDerivs -> Result ASTDerivs AST'
 P pInt = int . read <$> some digit <?> "integer"
