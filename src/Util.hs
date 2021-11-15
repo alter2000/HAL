@@ -3,6 +3,8 @@ module Util
     where
 
 import Control.Monad
+import Control.Monad.Trans
+import Data.Functor
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO
 import Control.Exception
@@ -10,12 +12,19 @@ import System.Console.Haskeline
 
 import Types.Exceptions ( HALError )
 import Types.AST
-import Parser.Parser
--- import Eval
+import Parser.AST
+-- import Lib.AST
+import Parser.ParseError
+
+import Text.Pretty.Simple
 
 -- | needs more flesh, usable while inside 'Control.Monad.Except.ExceptT'
 halExcept :: HALError -> IO ()
 halExcept = hPutStrLn stderr . displayException
+
+-- | needs more flesh, usable while inside 'Control.Monad.Except.ExceptT'
+parserExcept :: ParseError -> IO ()
+parserExcept = hPutStrLn stderr . displayException
 
 -- | catch /any/ exception
 except :: SomeException -> IO a
@@ -28,16 +37,30 @@ settings = Settings
   , autoAddHistory = True
   }
 
-repl :: Either String Behavior -> IO ()
-repl (Left fpath) = runInputTBehavior (useFile fpath) settings $ till $ do
-  undefined
-repl (Right b) = runInputTBehavior b settings $ till $ do
-  undefined
+repl :: IO ()
+repl = runInputTBehavior defaultBehavior settings $ till $ do
+  _nput <- do getInputLine "repl poggers :: "
+              >>= maybe (liftIO $ putStrLn "no user input")
+              (either (liftIO . parserExcept) pPrint
+              . parse "<stdin>")
+  pure False
+
+interpretFile :: FilePath -> IO AST'
+interpretFile f = do        -- maybe needs ErrorT to actually return useful value (env + AST')
+  _ss' <- readFile f <&> either parserExcept evalStmts . parseFile f
+  putStrLn "poggers"
+  pure $ atom "poggers"
+  where evalStmts = undefined
+
+-- TODO: function that
+-- gets string
+-- gets Env
+-- parses string
+-- works in either Either or ErrorT smth
+-- evaluates single expression in Env
+-- returns single expression result + new Env
 
 {-
-interpretFile :: FilePath -> IO (AST', Env)
-interpretFile = readFile >=> pure . parse >=> evalStmts
-
 -- | interpret list of files, then return resulting env and return value
 interpret :: Monad m =>
      String -- ^ file input
@@ -52,4 +75,4 @@ defaulting d f xs
   | otherwise = f xs
 
 till :: Monad m => m Bool -> m ()
-till p = loop where loop = p >>= flip when loop
+till p = go where go = p >>= flip when go
