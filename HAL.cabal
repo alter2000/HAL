@@ -36,7 +36,6 @@ library
       RecursionSchemes
       Types.AST
       Types.Cofree
-      Types.Comonad
       Types.Exceptions
       Types.Interp
       Types.Pos

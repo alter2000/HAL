@@ -10,9 +10,7 @@ module RecursionSchemes
   , CVAlg
   , histo
   , histo'
-  , histoA
   , para
-  , paraA
   )
   where
 
@@ -66,10 +64,6 @@ histo' :: Functor f => CVAlg f a -> Fix f -> a
 histo' h = outF >>> fmap c >>> h
   where c = histo' h &&& fmap c . outF >>> uncurry (:<)
 {-# INLINE histo' #-}
-
--- | Histomorphism but with effectful values, maybe not necessary
-histoA :: (Applicative a, Functor f) => CVAlg f (a r) -> Fix f -> a r
-histoA = histo
 -- }}}
 
 -- Paramorphisms {{{
@@ -77,9 +71,4 @@ histoA = histo
 para :: Functor f => (f (Fix f, a) -> a) -> Fix f -> a
 para f = histo $ fmap c >>> f
   where c (a :< h) = (Fix $ (c >>> fst) <$> h, a)
-
--- | paramorphism but with effectful values
-paraA :: (Functor f, Applicative a)
-      => (f (Fix f, a r) -> a r) -> Fix f -> a r
-paraA = para
 -- }}}

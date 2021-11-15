@@ -48,7 +48,6 @@ instance Alternative f => Applicative (Cofree f) where
   (<*>) = ap
 
 instance Alternative f => Monad (Cofree f) where
-  return = pure
   (a :< m) >>= k = case k a of b :< n -> b :< (n <|> fmap (>>= k) m)
 
 instance (Eq1 f) => Eq1 (Cofree f) where

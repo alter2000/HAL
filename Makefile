@@ -19,8 +19,10 @@ tests_run:
 
 clean: fclean
 
-fclean: ./.stack-work
+fclean:
 	rm -rf .stack-work tags TAGS
+	find . -name '*.hi' -type f -delete
+	find . -name '*.o' -type f -delete
 
 re:
 	$(MAKE) fclean

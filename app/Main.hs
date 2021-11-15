@@ -1,27 +1,17 @@
 module Main where
 
--- import Control.Monad
 import Control.Exception as E
-
--- import Data.Functor
--- import Data.Foldable
--- import Data.Traversable
-import System.Console.Haskeline
 import System.Environment ( getArgs )
--- import System.IO
 
 import Util
--- import Types.Interp
--- import Types.AST
 
 main :: IO ()
-main = E.handle except $ getArgs >>= \allArgsEver -> case allArgsEver of
-  [] -> repl $ Right defaultBehavior
-  ["-i"] -> repl $ Right defaultBehavior
+main = handle except $ getArgs >>= \allArgs -> case allArgs of
+  [] -> repl
+  ["-i"] -> repl
   as | "-i" `elem` as && "-i" `isLast` as -> do
     putStrLn "read all files, then drop into repl"
-  _as' ->
-    -- let as = filter (=="-i") as'
+  as -> pure (filter (/= "-i") as) >>
     putStrLn $ "read all files in loop, feeding previous arguments into"
             <> " next computation"
     -- [String] -> (String -> AST) -> [AST]
