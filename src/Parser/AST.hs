@@ -1,6 +1,4 @@
 module Parser.AST
-  -- ( 
-  -- )
   where
 
 import Control.Applicative
@@ -82,6 +80,7 @@ P pAtom = do
     "." -> unexpected "dotted list" <?> "atom"
     _   -> pure (atom tok) <?> "atom"
 
+{- HLINT ignore "Avoid restricted function" -}
 pInt :: ASTDerivs -> Result ASTDerivs AST'
 P pInt = int . read <$> some digit <?> "integer"
 

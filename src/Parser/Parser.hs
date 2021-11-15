@@ -46,7 +46,6 @@ instance Derivs d => Alternative (Parser d) where
       NoParse    e2 -> NoParse    $ e1 <> e2
 
 instance Derivs d => Monad (Parser d) where
-  return = pure
   P p1 >>= f = P $ \ds -> case p1 ds of
     Parsed val r e1 -> case runParser (f val) r of
       Parsed v r' e2 -> Parsed v r' $ e1 <> e2

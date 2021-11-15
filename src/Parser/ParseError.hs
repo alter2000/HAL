@@ -4,10 +4,11 @@ module Parser.ParseError
   , msgError
   ) where
 
-import Types.Pos
-
 import Data.Foldable
 import Data.List
+import Control.Exception
+
+import Types.Pos
 
 data ErrorDescriptor = Expected String
                      | Message String
@@ -16,6 +17,9 @@ data ParseError = ParseError
   { errorPos  :: Pos
   , errorDesc :: [ErrorDescriptor]
   }
+
+instance Exception ParseError where
+  displayException = show
 
 expError :: Pos -> String -> ParseError
 expError pos desc = ParseError pos [Expected desc]
@@ -44,7 +48,8 @@ instance Ord ParseError where
   ParseError p1 _ >= ParseError p2 _ = p1 >= p2
 
   max p1 p2 = p1 <> p2
-  min _ _ = error "Parser.ParseError: incomplete Ord instance"
+  min _ _ =
+    errorWithoutStackTrace "Parser.ParseError: incomplete Ord instance"
 
 instance Show ParseError where
   show (ParseError pos []) = show pos <> ": parse error"
