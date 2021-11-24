@@ -49,8 +49,8 @@ evalDerivs pos s = d where
     , adElem   = pElem d
     }
 
-parse :: FilePath -> String -> Either ParseError AST'
-parse fname s = case pExpr $ evalDerivs (Pos fname 1 1) s of
+parse :: String -> Either ParseError AST'
+parse s = case pExpr $ evalDerivs (Pos "<stdin>" 1 1) s of
     Parsed v _ _ -> Right v
     NoParse e -> Left e
   where P pExpr = P adIgnore *> P adElem
@@ -73,8 +73,8 @@ P pElem = asum [P adHash, P adInt, P adString, P adQuote, P adAtom, P adList]
 -- starting with a letter or symbol
 pAtom :: ASTDerivs -> Result ASTDerivs AST'
 P pAtom = do
-  prefix <- some $ letter <|> oneOf "?!$%^&*_+-=#,.<>/"
-  middle <- many $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/"
+  prefix <- some $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/" <?> "atom"
+  middle <- many $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/" <?> "atom"
   let tok = prefix <> middle
   case tok of
     "." -> unexpected "dotted list" <?> "atom"

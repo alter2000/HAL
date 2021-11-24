@@ -3,12 +3,13 @@ module Main where
 import Control.Exception as E
 import System.Environment ( getArgs )
 
+import Lib.AST
 import Util
 
 main :: IO ()
 main = handle except $ getArgs >>= \allArgs -> case allArgs of
-  [] -> repl
-  ["-i"] -> repl
+  [] -> repl primEnv
+  ["-i"] -> repl primEnv
   as | "-i" `elem` as && "-i" `isLast` as -> do
     putStrLn "read all files, then drop into repl"
   as -> pure (filter (/= "-i") as) >>
