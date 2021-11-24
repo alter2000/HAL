@@ -6,22 +6,24 @@ module Lib.AST
   where
 
 
-import Debug.Trace
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Arrow
 import qualified Data.Map as M
+import Control.Exception
+import System.IO
+import System.Console.Haskeline
 
-import Types.Exceptions ( HALError(..) )
+import Types.Exceptions
 import RecursionSchemes
 import Types.Cofree
 
 import Types.AST
 import Types.Interp
 import Types.Pos
--- import Lib.Env
 
-type EvalAST = Cofree ASTF Pos
+type ASTPos = Cofree ASTF Pos
 
 type Alg f a = f a -> a
 
@@ -30,30 +32,80 @@ type Alg f a = f a -> a
 --  * see whole structure
 --  * see all optimizations done
 --  * cache intermediate results
-cvAlg :: a
+cvAlg :: ASTPos -> Interp ASTPos
 cvAlg = undefined
 
-resolveScope :: Scope f -> Env -> IO (Either HALError f)
-resolveScope s = runReaderT s >>> runExceptT
+evalTerm :: AST' -> Env -> InputT IO (AST', Env)
+evalTerm ast e = liftIO $ handle (halExcept >>> (>> pure (list [], e)))
+  (runInterp (applyRewriteRules ast) >>= resolveScope $ e)
 
-runStep :: AST' -> Env -> IO (Either HALError (AST', Env))
-runStep = cata alg >>> runInterp >=> resolveScope
+runStep :: AST' -> Env -> IO (AST', Env)
+runStep = cataM alg >>> runInterp >=> resolveScope
 
-alg :: Alg ASTF (Interp AST')
-alg  (Atom a) = pure $ atom a
-alg   (Int a) = pure $ int a
-alg  (Bool a) = pure $ bool a
--- alg  (Real a) = real a
-alg   (Str a) = pure $ str a
-alg  (List s) = list <$> sequence s
-alg (DottedList as t) = sequence as >>= (<$> t) . dlist
-alg (Function ps b c) = handleFunction ps b c
 
-handleFunction :: [String] -> [Interp AST'] -> Env -> Interp AST'
-handleFunction params body ctx = undefined
+-- | needs more flesh, usable while inside 'Control.Monad.Except.ExceptT'
+halExcept :: HALError -> IO ()
+halExcept = hPutStrLn stderr . displayException
 
-builtins :: M.Map VarName AST'
-builtins = M.empty
+alg :: ASTF AST' -> Interp AST'
+alg  (Int a) = pure $ int a
+alg (Bool a) = pure $ bool a
+alg  (Str a) = pure $ str a
+alg (DottedList as t) = pure $ dlist as t
+alg (Lambda ps b c) = pure $ func ps b c
+alg (Builtin b) = pure $ mkBuiltin b
+alg (List []) = pure $ list []
+alg (List as) = handleList (outF <$> as)
+                          -- TODO: DANGEROUS? ↓ pure $ atom a
+alg (Atom a) = maybe (trace ("atom? " <> a) $ throw $ UndefinedSymbol nPos a)
+  pure . M.lookup a . getEnv =<< get
+-- alg (Real a) = real a
+
+handleList :: [ASTF AST'] -> Interp AST'
+handleList [Atom "quote", a] = trace "list quote" $ pure $ Fix a
+handleList (Lambda{}:_) = throw $ TypeMismatch nPos "procedure"
+handleList [Atom "define", var, def] = -- get >>= \(Env _) ->
+  retAtom var >> evalCtx [var] [def] var >> pure (Fix var)
+handleList a = pure $ list $ Fix <$> a
+
+-- Helpers {{{
+retAtom :: ASTF a -> Interp (ASTF a)
+retAtom (Atom a) = pure $ Atom a
+retAtom _ = throw $ TypeMismatch nPos "expected atom"
+
+getAtom :: ASTF a -> VarName
+getAtom (Atom a) = a
+getAtom _ = throw $ TypeMismatch nPos "expected atom"
+
+applyCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
+applyCtx vars defs v =  ask >>= \(Env e) ->
+  local (const . Env $ (newEnv vars defs <> e)) $ alg v
+
+evalCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
+evalCtx vars defs v = get >>= \(Env e) ->
+  put (Env $ newEnv vars defs <> e) >> alg v
+
+newEnv :: [ASTF a] -> [f (Fix f)] -> M.Map VarName (Fix f)
+newEnv vars defs = fmap Fix $ M.fromList $ zipWith ((,) . getAtom) vars defs
+
+getLambda :: VarName -> [AST'] -> Interp AST'
+getLambda l as = maybe (trace "lambda?" $ throw $ UndefinedSymbol nPos l)
+  (`applyLambda` as) . M.lookup l . getEnv =<< get
+
+applyLambda :: AST' -> [AST'] -> Interp AST'
+applyLambda = undefined -- ask
+-- }}}
+
+-- Builtins {{{
+builtins :: M.Map VarName (Func Interp)
+builtins = Func <$> M.fromList [
+    ("quote", quote)
+  , ("car", car)
+  , ("cdr", cdr)
+  , ("cons", cons)
+  , ("atom?", isAtom)
+  , ("cond", cond)
+  ]
 --   [ ("+",   varOp (int 0) (wrap int (+) getInt))
 --   , ("-",   varOp (int 0) (wrap int (-) getInt))
 --   , ("*",   varOp (int 1) (wrap int (*) getInt))
@@ -76,16 +128,9 @@ builtins = M.empty
 --   -- , ("string>?",  boolOp2 getStr (>))
 --   -- , ("string<=?", boolOp2 getStr (<=))
 --   -- , ("string>=?", boolOp2 getStr (>=))
---   , ("quote", quote)
---   , ("car", car)
---   , ("cdr", cdr)
---   , ("cons", cons)
---   , ("atom?", isAtom)
---   , ("cond", cond)
---   ]
 
--- primEnv :: Env
--- primEnv = Env $ builtin <$> builtins
+primEnv :: Env
+primEnv = Env $ mkBuiltin <$> builtins
 
 quote :: [AST'] -> Interp AST'
 -- quote [a] = func [] (Just "quote") [a] . Env $ builtin <$> builtins
