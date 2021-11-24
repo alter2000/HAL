@@ -23,6 +23,6 @@ in
 
 if pkgs.lib.inNixShell then hpkgs.shellFor {
   packages = p: with hpkgs; [ p.hal p.haskell-language-server ];
-  buildInputs = [ pkgs.stack ];
+  buildInputs = [ pkgs.stack pkgs.chez ];
   withHoogle = true;
 } else hal

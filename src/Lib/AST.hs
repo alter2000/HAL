@@ -164,19 +164,34 @@ cons as = throwError $ BadArguments nPos 2 (length as)
 isAtom :: [AST'] -> Interp AST'
 isAtom [Fix(Atom _)] = pure $ bool True
 isAtom _             = pure $ bool False
+-- }}}
 
 -- rewrite rules {{{
  -- [.] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
  -- [ ] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
-applyRewriteRules :: AST' -> AST'
-applyRewriteRules (Fix(List [
-    Fix(Atom "define"), Fix(List (Fix(Atom fname) : args)), body]))
-  = list [atom "define", atom fname, list [atom "lambda", list args, body]]
-applyRewriteRules (Fix(List [Fix(Atom "let"), Fix(List pairs), body]))
-  = list [list [atom "lambda", list $ fsts pairs, body], list $ snds pairs]
-    where fsts = undefined
-          snds = undefined
-applyRewriteRules a = a
+applyRewriteRules :: AST' -> Interp AST'
+applyRewriteRules = rewrite . outF
+
+rewrite :: ASTF AST' -> Interp AST'
+rewrite (List [Fix(Atom "define"), Fix(List (Fix(Atom fname) : args)), body])
+  = pure $ list [atom "define", atom fname,
+                  list [atom "lambda", list args, body]]
+rewrite (List [Fix(Atom "let"), Fix(List pairs), body])
+  = pure $ list [list [atom "lambda", list $ fsts pairs, body],
+                  list $ snds pairs]
+rewrite (List [Fix(List[Fix(Atom "lambda"), Fix(List args), Fix(List bd)])])
+  = gets $ Fix . Lambda (getAtom . outF <$> args) bd
+rewrite (List (Fix(Atom a):as)) = pure $ list $ maybe (atom a:as)
+  ((: as) . mkBuiltin) $ M.lookup a builtins
+rewrite a = pure $ Fix a
+
+fsts :: [a] -> [a]
+fsts [] = []
+fsts (x:xs) = x : snds xs
+snds :: [a] -> [a]
+snds [] = []
+snds (_:xs) = fsts xs
+
 -- }}}
 
 -- testing {{{
