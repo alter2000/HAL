@@ -1,17 +1,13 @@
 module Types.Interp
   where
 
-import Control.Monad.Except as E
 import Control.Monad.Reader as R
 import Control.Monad.State
 
 import Types.AST
-import Types.Exceptions
-
-type Interp = StateT Env Scope
 
 -- | Lexical scope captured by lambda
-type Scope = ReaderT Env (ExceptT HALError IO)
+type Scope = ReaderT Env IO
 -- NO TYPE SAFETY BECAUSE TOO LAZY TO MANUALLY REWRITE EVERYTHING
 -- THANKS EPITECH WHEN GeneralizedNewtypeDeriving ?????????????????
 -- newtype Scope f = Scope { unScope :: ReaderT Env (ExceptT HALError IO) f }
@@ -19,3 +15,6 @@ type Scope = ReaderT Env (ExceptT HALError IO)
 
 runInterp :: Interp f -> Env -> Scope (f, Env)
 runInterp = runStateT
+
+resolveScope :: Scope f -> Env -> IO f
+resolveScope = runReaderT

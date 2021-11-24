@@ -110,7 +110,7 @@ parens :: Parser ASTDerivs a -> Parser ASTDerivs a
 parens p = char '(' *> P adIgnore `around` p <* char ')' <?> "parentheses"
 
 pQuote :: ASTDerivs -> Result ASTDerivs AST'
-P pQuote = quote <$> (char '\'' *> P adElem) <?> "quote"
+P pQuote = mkQuote <$> (char '\'' *> P adElem) <?> "quote"
 
 pComment :: ASTDerivs -> Result ASTDerivs String
 P pComment = char ';' *> many (noneOf "\n") <?> "comment"
