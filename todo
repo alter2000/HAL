@@ -6,20 +6,21 @@
     - [x] combinators
     - [x] text position
     - [ ] tests
-    - [x] Deriv datatype not typeclass (**NOTE**: no need, memoization on instance implementor)
+    - [x] Deriv datatype not typeclass **NO NEED**: memoization on instance implementor
     - [ ] bonus: QQ TemplateHaskell ()
   - [.] AST building
     - [.] smart constructors
 - [ ] evaluation
-  - [.] AST error handling
-  - [ ] LISP -> Haskell types
+  - [x] AST error handling
+  - [x] LISP -> Haskell types
   - [ ] tests
   - [.] rewrite rules
     - [ ] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
     - [ ] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
     - [.] `'(a b c)` -> `(quote (a b c))`
       - [ ] what about `'"str"`/`'1`?
-    - [ ] `(a . b . c)` -> `(a b c)`
+    - [x] `(a . b . c)` -> `(a b c)`
+      - [x] `(a . (b . c))` -> `(a b . c)`
 - [ ] general UX
   - [x] `Pos` in syntax errors
   - [ ] `Pos` in runtime errors

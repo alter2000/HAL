@@ -60,6 +60,10 @@
              y))
          '() xs))
 
+(define (append++ . xs)
+  (fold-right (lambda (a acc) (append a acc))
+              '() xs))
+
 ;; }}}
 ;; Arithmetics {{{
 ;; only '<' is defined
