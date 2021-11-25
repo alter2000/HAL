@@ -6,6 +6,7 @@ module Types.AST
 
 import Data.Functor.Classes
 import Control.Arrow
+import Data.Function
 import Data.List as L
 import qualified Data.Map as M
 
@@ -20,6 +21,12 @@ type Interp = StateT Env (ReaderT Env IO)
 
 newtype Env = Env { getEnv :: M.Map VarName AST' }
 
+instance Semigroup Env where (<>) = (Env .) . ((<>) `on` getEnv)
+
+instance Monoid Env where mempty = Env mempty
+
+instance Show Env where show = show . getEnv
+
 -- | whole AST definition
 data ASTF r = Atom !VarName
             | Int  !Integer
@@ -31,8 +38,9 @@ data ASTF r = Atom !VarName
             -- lambda grabs closure from current env (a la python)
             | Builtin (Func (StateT Env (ReaderT Env IO)))
             | Lambda { fnArgs :: ![VarName]
-                     , fnBody :: ![r]
+                     , fnBody :: !r
                      , fnEnv  :: Env }
+            deriving (Show)
 
 newtype Func m = Func { getFn :: [AST'] -> m AST' }
 
@@ -46,7 +54,7 @@ instance Functor ASTF where
   fmap _  (Int a) = Int a
   fmap f (List r) = List $ f <$> r
   fmap f (DottedList r h) = DottedList (f <$> r) (f h)
-  fmap f (Lambda p b c)   = Lambda p (f <$> b) c
+  fmap f (Lambda p b c)   = Lambda p (f b) c
   fmap _ (Builtin p) = Builtin p
   -- fmap _ (Real a) = Real a
 
@@ -57,7 +65,7 @@ instance Foldable ASTF where
   foldMap _  (Int _) = mempty
   foldMap f (List r) = foldMap f r
   foldMap f (DottedList r h) = foldMap f r <> f h
-  foldMap f (Lambda _ b _)   = foldMap f b
+  foldMap f (Lambda _ b _)   = f b
   foldMap _ (Builtin _) = mempty
   -- foldMap _ (Real _) = mempty
 
@@ -68,7 +76,7 @@ instance Traversable ASTF where
   traverse _  (Int a) = pure $ Int a
   traverse f (List r) = List <$> traverse f r
   traverse f (DottedList xs x) = DottedList <$> traverse f xs <*> f x
-  traverse f (Lambda ps b ctx) = flip (Lambda ps) ctx <$> traverse f b
+  traverse f (Lambda ps b ctx) = flip (Lambda ps) ctx <$> f b
   traverse _ (Builtin p) = pure $ Builtin p
   -- traverse _ (Real a) = pure $ Real a
 
@@ -93,6 +101,16 @@ showList' end pf p =
 type AST' = Fix ASTF
 
 -- Smart constructors {{{
+
+newtype ASTWithHist =
+  ASTWithHist { runASTWithHist :: Cofree ASTF [ASTWithHist] }
+
+-- | Get an AST, handle said AST in such a way that it can see its
+--   history, finally return an @IO ()@
+-- type AST' = Cofree ASTF Pos
+
+-- node :: f (Cofree f Pos) -> Cofree f Pos
+-- node a = nPos C.:< a
 
 list :: [AST'] -> AST'
 list = Fix . List
@@ -119,7 +137,7 @@ mkQuote a = list [atom "quote", a]
 dlist :: [AST'] -> AST' -> AST'
 dlist as = Fix . DottedList as
 
-func :: [VarName] -> [AST'] -> Env -> AST'
+func :: [VarName] -> AST' -> Env -> AST'
 func ps body ctx = Fix $ Lambda ps body ctx
 
 -- }}}
