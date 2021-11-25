@@ -20,7 +20,7 @@
   - {name: forkProcess, within: []}
 
   - {name: undefined, within: []} # Purposely fails. Deal with errors appropriately instead.
-  - {name: throw, within: []} # Don't throw from pure code, use throwIO instead.
+  # - {name: throw, within: []} # Don't throw from pure code, use throwIO instead.
   - {name: Prelude.error, within: []}
 
   - {name: Data.List.head, within: []} # Partial, use `listToMaybe` instead.

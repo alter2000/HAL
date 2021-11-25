@@ -7,19 +7,17 @@ import Lib.AST
 import Util
 
 main :: IO ()
-main = handle except $ getArgs >>= \allArgs -> case allArgs of
+main = handle halt $ getArgs >>= \allArgs -> case allArgs of
   [] -> repl primEnv
   ["-i"] -> repl primEnv
-  as | "-i" `elem` as && "-i" `isLast` as -> do
-    putStrLn "read all files, then drop into repl"
-  as -> pure (filter (/= "-i") as) >>
-    putStrLn $ "read all files in loop, feeding previous arguments into"
-            <> " next computation"
-    -- [String] -> (String -> AST) -> [AST]
-    -- acc :: AST -> Env -> Env
-    -- runInterp $ forM_ as $ \f -> withFile f ReadMode $ readFile >>= interpret primEnv
+  as | "-i" `elem` as && "-i" `isLast` as ->
+    (dropI as >>= interpret primEnv) >>= repl . snd
+  as -> dropI as >>= interpret primEnv >> pure ()
 
 isLast :: Eq a => a -> [a] -> Bool
 isLast _ [] = False
 isLast p [x] = p == x
 isLast p (_:xs) = isLast p xs
+
+dropI :: [String] -> IO [String]
+dropI = pure . filter (/= "-i")
