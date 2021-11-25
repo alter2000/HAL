@@ -2,13 +2,13 @@
 module Util
     where
 
-import Control.Monad
-import Control.Monad.Trans
-import Data.Functor
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO
 import Control.Exception
 import System.Console.Haskeline
+
+import Control.Monad
+import Control.Monad.Trans
 import Data.Char
 
 import Types.Exceptions ( HALError )
@@ -33,52 +33,41 @@ except = hPutStrLn stderr . displayException
 halt :: SomeException -> IO a
 halt e = except e >> exitWith (ExitFailure 84)
 
+-- | TODO: custom from primEnv <> curEnv?
+-- will need to grab 'Env' from 'Interp', therefore build @InputT Interp a@
 settings :: Settings IO
 settings = Settings
-  { complete = completeFilename -- TODO: custom from primEnv <> curEnv?
+  { complete = completeFilename
   , historyFile = Just "./hal_history"
   , autoAddHistory = True
   }
 
 repl :: Env -> IO ()
-repl env = runInputT settings $ till . fmap snd $ do
-  input <- getInputLine "><> fishy :: "
-  case input of
+repl env = runInputT settings $ till . fmap snd $ getInputLine "><> fishy :: "
+  >>= \input -> case input of
     Nothing -> pure (env, False)
-    Just a | filter (not . isSpace) a == "" -> pure (env, True)
-           | otherwise -> replStep env a
-
-replStep :: Env -> String -> InputT IO (Env, Bool)
-replStep env a = getExternalPrint >>= \pp -> liftIO $ case parse a of
-  Left ex -> pExcept pp ex >> pp "unpoggers" >> pure (env, True)
-  Right ast -> handle (\e -> halExcept e >> pure (env, True)) $
-    runStep ast env >>= \(a', e') -> pp (show a') >> pure (e', True)
+    Just i | filter (not . isSpace) i == "" -> pure (env, True)
+           | otherwise -> getExternalPrint >>= \pp -> liftIO $ case parse i of
+      Left ex -> pExcept pp ex >> pure (env, True)
+      Right ast -> handle (\e -> except e >> pure (env, True)) $
+        runStep ast env >>= \(a', e') -> pp (show a') >> pure (e', True)
 
 
 -- maybe needs ErrorT to actually return useful value (env + AST')
-interpretFile :: FilePath -> IO AST'
-interpretFile f = do
-  _ss' <- readFile f <&> either (pExcept $ hPutStrLn stderr) evalStmts . parseFile f
-  putStrLn "poggers"
-  pure $ atom "poggers"
-  where evalStmts = undefined
+interpretFile :: Env -> FilePath -> IO (AST', Env)
+interpretFile env f = readFile f >>= either
+  (\pe -> pExcept (hPutStrLn stderr) pe >> exitWith (ExitFailure 84))
+  (evalFile env) . parseFile f
 
--- TODO: function that
--- gets string
--- gets Env
--- parses string
--- works in either Either or ErrorT smth
--- evaluates single expression in Env
--- returns single expression result + new Env
+evalFile :: Env -> [AST'] -> IO (AST', Env)
+evalFile env [] = pure (list [], env)
+evalFile env (ast:asts) = runStep ast env >>= flip evalFile asts . snd
 
-{-
 -- | interpret list of files, then return resulting env and return value
-interpret :: Monad m =>
-     String -- ^ file input
-  -> Env    -- ^ base environment
-  -> m (AST', Env)
-interpret = undefined
--}
+interpret :: Env -> [String] -> IO (AST', Env)
+interpret env [] = pure (list [], env)
+interpret env [fp] = interpretFile env fp
+interpret env (fp:fps) = interpretFile env fp >>= flip interpret fps . snd
 
 defaulting :: Foldable f => b -> (f a -> b) -> f a -> b
 defaulting d f xs
