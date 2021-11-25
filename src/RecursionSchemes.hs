@@ -6,11 +6,15 @@ module RecursionSchemes
   ( Fix(..)
   , cata
   , cataM
+  , cataMCps
 
   , CVAlg
   , histo
   , histo'
+  , RAlg
   , para
+  , RMAlg
+  , paraM
   )
   where
 
@@ -18,7 +22,7 @@ module RecursionSchemes
 import Data.Functor.Classes
 import Data.Function (on)
 import Control.Arrow ( (>>>), Arrow((&&&)) )
-import Control.Monad ( (<=<) )
+import Control.Monad.Cont
 
 import Types.Cofree
 
@@ -41,6 +45,12 @@ cata f = c where c = f . fmap c . outF
 -- | 'cata' but giving out an effectful value
 cataM :: (Monad m, Traversable t) => (t a -> m a) -> Fix t -> m a
 cataM f = c where c = f <=< (traverse c . outF)
+
+cataMCps :: (Traversable t, Monad m) => (t a -> m a) -> Fix t -> m a
+cataMCps f x = runContT (rec f x) pure
+  where
+    rec :: (Traversable f, Monad m) => (f a -> m a) -> Fix f -> ContT a m a
+    rec alg (Fix ex) = mapM (rec alg) ex >>= ContT . (>>=) . alg
 -- }}}
 
 -- Histo/futumorphisms {{{
@@ -67,8 +77,15 @@ histo' h = outF >>> fmap c >>> h
 -- }}}
 
 -- Paramorphisms {{{
+type RAlg f a = f (Fix f, a) -> a
 -- | Paramorphism, histomorphism minus the "can look at previous steps"
-para :: Functor f => (f (Fix f, a) -> a) -> Fix f -> a
+para :: Functor f => RAlg f a -> Fix f -> a
 para f = histo $ fmap c >>> f
   where c (a :< h) = (Fix $ (c >>> fst) <$> h, a)
+
+type RMAlg f m a = f (Fix f, a) -> m a
+paraM :: (Monad m, Traversable t, Foldable t)
+      => RMAlg t m a -> Fix t -> m a
+paraM f = c where c   = f <=< traverse bundle . outF
+                  bundle t = (,) t <$> c t
 -- }}}
