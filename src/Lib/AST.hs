@@ -6,11 +6,14 @@ module Lib.AST
   where
 
 
+import Debug.Trace
+
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Arrow
 import qualified Data.Map as M
+
 import Control.Exception
 import System.IO
 import System.Console.Haskeline
@@ -27,26 +30,24 @@ type ASTPos = Cofree ASTF Pos
 
 type Alg f a = f a -> a
 
--- | CV-algebra, can:
---
---  * see whole structure
---  * see all optimizations done
---  * cache intermediate results
-cvAlg :: ASTPos -> Interp ASTPos
-cvAlg = undefined
-
 evalTerm :: AST' -> Env -> InputT IO (AST', Env)
 evalTerm ast e = liftIO $ handle (halExcept >>> (>> pure (list [], e)))
-  (runInterp (applyRewriteRules ast) >>= resolveScope $ e)
+  (runStep (applyRewriteRules ast) e)
 
 runStep :: AST' -> Env -> IO (AST', Env)
-runStep = cataM alg >>> runInterp >=> resolveScope
+runStep = cataMCps alg >>> runInterp >=> resolveScope
 
+-- eval :: AST' -> Interp AST'
+-- eval a = get >>= (runStep a (flip fmap) \r ->
+--             case r of
+--               Left he -> liftIO (halExcept he) >> pure $ list []
+--               Right (a', e') -> put e' >> pure a')
 
 -- | needs more flesh, usable while inside 'Control.Monad.Except.ExceptT'
 halExcept :: HALError -> IO ()
 halExcept = hPutStrLn stderr . displayException
 
+-- | TODO: 'RMAlg ASTF Interp AST\''?
 alg :: ASTF AST' -> Interp AST'
 alg  (Int a) = pure $ int a
 alg (Bool a) = pure $ bool a
@@ -54,21 +55,40 @@ alg  (Str a) = pure $ str a
 alg (DottedList as t) = pure $ dlist as t
 alg (Lambda ps b c) = pure $ func ps b c
 alg (Builtin b) = pure $ mkBuiltin b
-alg (List []) = pure $ list []
-alg (List as) = handleList (outF <$> as)
-                          -- TODO: DANGEROUS? ↓ pure $ atom a
-alg (Atom a) = maybe (trace ("atom? " <> a) $ throw $ UndefinedSymbol nPos a)
+alg (Atom a) = maybe (checkBuiltin a)
   pure . M.lookup a . getEnv =<< get
--- alg (Real a) = real a
 
-handleList :: [ASTF AST'] -> Interp AST'
-handleList [Atom "quote", a] = trace "list quote" $ pure $ Fix a
-handleList (Lambda{}:_) = throw $ TypeMismatch nPos "procedure"
-handleList [Atom "define", var, def] = -- get >>= \(Env _) ->
+alg (List [Fix(Atom "quote"), a]) = pure a
+alg (List [Fix(Atom "define"), Fix var, Fix def]) =
   retAtom var >> evalCtx [var] [def] var >> pure (Fix var)
-handleList a = pure $ list $ Fix <$> a
+alg (List [Fix(Atom "lambda"), Fix(List ps), b]) =
+  asks $ func (getAtom . outF <$> ps) b
+alg (List (Fix(Lambda vs (Fix body) env): ps)) = ask >>= \gEnv ->
+  modify (const $ gEnv <> env) >> get >>= \e' ->
+  trace ("env: " <> show e') $ applyCtx (Atom <$> vs) (outF <$> ps) body
+alg (List (Fix(Builtin (Func a)):as)) = a as
+alg (List []) = pure $ list []
+alg a = pure $ Fix a
+
+-- handleList ((Atom a):as) = pure $ atom a -- applyLambda a $ (runStep <*> get) <$> Fix <$> as
+-- handleList a@(List{}:_) = pure $ list $ Fix <$> a
+-- handleList (Fix a@List{}:as) = get >>= liftIO . runStep (Fix a) >>=
+--   either throw (\(r, env) -> put env >> pure r)
+
+checkBuiltin :: VarName -> Interp AST'
+checkBuiltin v = get >>= \(Env env) -> case M.lookup v env of
+  Just a -> pure a
+  Nothing | v `elem` specialForms -> pure $ atom v
+          | otherwise -> throw $ UndefinedSymbol nPos v
+    where specialForms = ["define", "lambda"]
 
 -- Helpers {{{
+applyCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
+applyCtx vars defs v = trace ("var: " <> show v) $ local (newEnv vars defs <>) (alg v)
+
+evalCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
+evalCtx vars defs v = modify (newEnv vars defs <>) >> alg v
+
 retAtom :: ASTF a -> Interp (ASTF a)
 retAtom (Atom a) = pure $ Atom a
 retAtom _ = throw $ TypeMismatch nPos "expected atom"
@@ -77,20 +97,12 @@ getAtom :: ASTF a -> VarName
 getAtom (Atom a) = a
 getAtom _ = throw $ TypeMismatch nPos "expected atom"
 
-applyCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
-applyCtx vars defs v =  ask >>= \(Env e) ->
-  local (const . Env $ (newEnv vars defs <> e)) $ alg v
+newEnv :: [ASTF a] -> [ASTF AST'] -> Env
+newEnv vars = Env . fmap Fix . M.fromList . zipWith ((,) . getAtom) vars
 
-evalCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
-evalCtx vars defs v = get >>= \(Env e) ->
-  put (Env $ newEnv vars defs <> e) >> alg v
-
-newEnv :: [ASTF a] -> [f (Fix f)] -> M.Map VarName (Fix f)
-newEnv vars defs = fmap Fix $ M.fromList $ zipWith ((,) . getAtom) vars defs
-
-getLambda :: VarName -> [AST'] -> Interp AST'
-getLambda l as = maybe (trace "lambda?" $ throw $ UndefinedSymbol nPos l)
-  (`applyLambda` as) . M.lookup l . getEnv =<< get
+-- getLambda :: VarName -> [AST'] -> Interp AST'
+-- getLambda l as = maybe (trace "lambda?" $ throw $ UndefinedSymbol nPos l)
+--   (`applyLambda` as) . M.lookup l . getEnv =<< get
 
 applyLambda :: AST' -> [AST'] -> Interp AST'
 applyLambda = undefined -- ask
@@ -116,12 +128,6 @@ builtins = Func <$> M.fromList [
 --   -- , ("remainder", binOp rem)
 --   , ("=",  boolOp2 getInt (==))
 --   , ("<",  boolOp2 getInt (<))
---   , (">",  boolOp2 getInt (>))
---   , ("/=", boolOp2 getInt (/=))
---   , (">=", boolOp2 getInt (>=))
---   , ("<=", boolOp2 getInt (<=))
---   , ("&&", boolOp2 getBool (&&))
---   , ("||", boolOp2 getBool (||))
 --   , ("eq?", binOp eqAll)
 --   -- , ("string=?",  boolOp2 getStr (==))
 --   -- , ("string<?",  boolOp2 getStr (<))
@@ -133,33 +139,34 @@ primEnv :: Env
 primEnv = Env $ mkBuiltin <$> builtins
 
 quote :: [AST'] -> Interp AST'
--- quote [a] = func [] (Just "quote") [a] . Env $ builtin <$> builtins
-quote as  = throwError $ BadArguments nPos (length as) 1
+quote [Fix(List xs)] = pure . list $ atom "quote" : xs
+quote [e] = pure . list $ atom "quote" : [e]
+quote as  = throw $ BadArguments nPos (length as) 1
 
 cond :: [AST'] -> Interp AST'
-cond (Fix (List [Fix a, b]):rest) = case cvAlg a of
+cond (Fix (List [Fix a, b]):rest) = alg a >>= \x -> case x of
   Fix (Bool True) -> pure b
   Fix (Bool False) -> cond rest
-  _ -> throwError $ TypeMismatch nPos "cond only handles bools"
-cond _ = throwError $ TypeMismatch nPos "cond only handles bools"
+  _ -> throw $ TypeMismatch nPos "cond only handles bools"
+cond _ = throw $ TypeMismatch nPos "cond only handles bools"
 
 -- TODO: really need to handle 'quote'?
 car :: [AST'] -> Interp AST'
-car (Fix    (List[Fix(Atom "quote"), Fix(List(r:_))]):_) = pure $ trace (show r) r
-car (Fix a'@(List(Fix(Atom _):_)):_) = cvAlg $ List [atom "car", cvAlg a']
+car (Fix(List[ Fix(Atom "quote"), Fix(List(r:_)) ]):_) = pure r
+car (Fix a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "car", Fix a']
 car (Fix    (List(a          :_)):_) = pure a
 car _ = pure $ list []
 
 cdr :: [AST'] -> Interp AST'
-cdr (Fix    (List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
-cdr (Fix a'@(List(Fix(Atom _):_)):_) = cvAlg $ List [atom "cdr", cvAlg a']
+-- cdr (Fix    (List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
+cdr (Fix a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "cdr", Fix a']
 cdr (Fix    (List(_          :r)):_) = pure $ list r
 cdr _ = pure $ list []
 
 cons :: [AST'] -> Interp AST'
 cons [a, Fix (List bs)] = pure $ list $ a:bs
 cons [a, b]             = pure $ list [a, b]
-cons as = throwError $ BadArguments nPos 2 (length as)
+cons as = throw $ BadArguments nPos 2 (length as)
 
 isAtom :: [AST'] -> Interp AST'
 isAtom [Fix(Atom _)] = pure $ bool True
@@ -167,60 +174,30 @@ isAtom _             = pure $ bool False
 -- }}}
 
 -- rewrite rules {{{
- -- [.] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
- -- [ ] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
-applyRewriteRules :: AST' -> Interp AST'
+ -- [x] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
+ -- [x] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
+applyRewriteRules :: AST' -> AST'
 applyRewriteRules = rewrite . outF
 
-rewrite :: ASTF AST' -> Interp AST'
+rewrite :: ASTF AST' -> AST'
 rewrite (List [Fix(Atom "define"), Fix(List (Fix(Atom fname) : args)), body])
-  = pure $ list [atom "define", atom fname,
-                  list [atom "lambda", list args, body]]
+  = list [atom "define", atom fname, list [atom "lambda", list args, body]]
 rewrite (List [Fix(Atom "let"), Fix(List pairs), body])
-  = pure $ list [list [atom "lambda", list $ fsts pairs, body],
-                  list $ snds pairs]
-rewrite (List [Fix(List[Fix(Atom "lambda"), Fix(List args), Fix(List bd)])])
-  = gets $ Fix . Lambda (getAtom . outF <$> args) bd
-rewrite (List (Fix(Atom a):as)) = pure $ list $ maybe (atom a:as)
+  = list $ [list [atom "lambda", list $ fsts pairs, body]] <> snds pairs
+-- rewrite (List [Fix(List[Fix(Atom "lambda"), Fix(List args), Fix(List bd)])])
+--   = gets $ Fix . Lambda (getAtom . outF <$> args) bd
+rewrite (List (Fix(Atom a):as)) = list $ maybe (atom a:as)
   ((: as) . mkBuiltin) $ M.lookup a builtins
-rewrite a = pure $ Fix a
+rewrite a = Fix a
 
-fsts :: [a] -> [a]
-fsts [] = []
-fsts (x:xs) = x : snds xs
-snds :: [a] -> [a]
-snds [] = []
-snds (_:xs) = fsts xs
+unzipList :: [AST'] -> [(AST', AST')]
+unzipList [] = []
+unzipList (Fix(List [a, b]):xs) = (a, b) : unzipList xs
+unzipList (_:xs) = unzipList xs
 
--- }}}
+fsts :: [AST'] -> [AST']
+fsts = fmap fst . unzipList
 
--- testing {{{
-
--- testFunc :: [Fix ASTF] -> Fix ASTF
--- testFunc b = Fix $ Function { params=["x","y"], args=Nothing
---                     , closure=Env $ Fix . Builtin <$> builtins
---                     , body=b }
-
-testList :: Fix ASTF
--- testList = list [atom "eq?", list [atom "+", int 1, int 2], list [atom "quote", int 3]]
--- testList = list [atom "quote", list [atom "+", int 1, int 2]]
-testList = list [atom "cond",
-  list [list [atom "eq?", list [atom "quote", atom "foo"],
-                             list [atom "car",   list [atom "quote", list [atom "foo", atom "bar"]]]],
-        list [atom "quote", atom "here"]],
-  list [list [atom "eq?", int 1, int 2], list [atom "quote", atom "there"]],
-  list [bool True, list [atom "quote", atom "nope"]]
-  ]
-
-n2list :: Fix ASTF
-n2list = list [atom "eq?", list [atom "quote", atom "foo"],
-                           carlist]
-carlist :: Fix ASTF
-carlist = list [atom "car", qlist]
-
-qlist :: Fix ASTF
-qlist = list [atom "quote", list [atom "foo", atom "bar"]]
-
-car2list :: Fix ASTF
-car2list = list [atom "car", list [atom "quote", list [str "a", str "b", str "c"]]]
+snds :: [AST'] -> [AST']
+snds = fmap snd . unzipList
 -- }}}

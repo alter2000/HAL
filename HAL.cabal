@@ -28,8 +28,6 @@ source-repository head
 library
   exposed-modules:
       Lib.AST
-      Lib.Env
-      Lib.Expr
       Parser.AST
       Parser.ParseError
       Parser.Parser
