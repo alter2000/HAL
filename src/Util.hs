@@ -75,6 +75,7 @@ interpretFile env f = readFile f >>= either
 
 evalFile :: Env -> [AST'] -> IO (AST', Env)
 evalFile env [] = pure (list [], env)
+evalFile env [ast] = runStep ast env
 evalFile env (ast:asts) = runStep ast env >>= flip evalFile asts . snd
 
 -- | interpret list of files, then return resulting env and return value

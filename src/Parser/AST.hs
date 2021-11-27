@@ -73,7 +73,7 @@ P pElem = asum [P adHash, P adInt, P adString, P adQuote, P adAtom, P adList]
 -- starting with a letter or symbol
 pAtom :: ASTDerivs -> Result ASTDerivs AST'
 P pAtom = do
-  prefix <- some $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/" <?> "atom"
+  prefix <- some $ alphaNum <|> oneOf "?!$%^&*_+-=#.<>/" <?> "atom"
   middle <- many $ alphaNum <|> oneOf "?!$%^&*_+-=#,.<>/" <?> "atom"
   let tok = prefix <> middle
   case tok of
