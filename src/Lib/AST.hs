@@ -44,39 +44,52 @@ alg  (Str a) = pure $ str a
 alg (DottedList as t) = pure $ dlist as t
 alg (Lambda ps b c) = pure $ func ps b c
 alg (Builtin b) = pure $ mkBuiltin b
-alg (Atom a) = maybe (checkBuiltin a)
-  pure . M.lookup a . getEnv =<< get
+alg (Atom a) = maybe (throw $ UndefinedSymbol nPos a)
+                      pure . M.lookup a . getEnv =<< liftA2 (<>) get ask
 
 alg (List [Fix(Atom "quote"), a]) = pure a
 alg (List [Fix(Atom "define"), Fix var, Fix def]) =
   retAtom var >> evalCtx [var] [def] var >> pure (Fix var)
-alg (List [Fix(Atom "lambda"), Fix(List ps), b]) =
-  asks $ func (getAtom . outF <$> ps) b
-alg (List (Fix(Lambda vs (Fix body) env): ps)) = ask >>= \gEnv ->
-  modify (const $ gEnv <> env) >> get >>= \e' ->
-  trace ("env: " <> show e') $ applyCtx (Atom <$> vs) (outF <$> ps) body
+alg (List [Fix(Atom "lambda"), Fix(List params), body]) =
+  func (getAtom . outF <$> params) body <$> liftA2 (<>) get ask
+
 alg (List (Fix(Builtin (Func a)):as)) = a as
+alg (List (Fix x : xs)) = do
+  (Fix funVar) <- alg x
+  case funVar of
+    (Builtin (Func f)) -> f =<< mapM alg (outF <$> xs)
+    l@Lambda{} -> applyLambda l xs
+    x' -> do
+      env <- liftA2 (<>) get ask
+      liftIO (putStrLn $ "IN LAST MATCH: " <> show x' )
+      liftIO (putStrLn $ "ENV: " <> show env)
+      local (<> env) $ alg x'
 alg (List []) = pure $ list []
-alg a = pure $ Fix a
 
--- handleList ((Atom a):as) = pure $ atom a -- applyLambda a $ (runStep <*> get) <$> Fix <$> as
--- handleList a@(List{}:_) = pure $ list $ Fix <$> a
--- handleList (Fix a@List{}:as) = get >>= liftIO . runStep (Fix a) >>=
---   either throw (\(r, env) -> put env >> pure r)
-
-checkBuiltin :: VarName -> Interp AST'
-checkBuiltin v = get >>= \(Env env) -> case M.lookup v env of
-  Just a -> pure a
-  Nothing | v `elem` specialForms -> pure $ atom v
-          | otherwise -> throw $ UndefinedSymbol nPos v
-    where specialForms = ["define", "lambda"]
+applyLambda :: ASTF (Fix ASTF) -> [Fix ASTF] -> Interp AST'
+applyLambda (Lambda args body localEnv) xs = do
+  (globalEnv, prevEnv) <- liftA2 (,) get ask
+  vs <- mapM alg (outF <$> xs)
+  v <- local (<> localEnv <> prevEnv) $ evalCtx (Atom <$> args) (outF <$> vs) (outF body)
+  modify (const globalEnv)
+  pure v
+applyLambda _ _ = error "Lib.AST.applyLambda: unreachable code (not lambda)"
 
 -- Helpers {{{
-applyCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
-applyCtx vars defs v = trace ("var: " <> show v) $ local (newEnv vars defs <>) (alg v)
+-- applyCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
+-- applyCtx vars defs v = local (<> newEnv vars defs) (alg v)
 
 evalCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
-evalCtx vars defs v = modify (newEnv vars defs <>) >> alg v
+evalCtx vars defs v = do
+  -- oldestEnv <- get
+  modify (<> newEnv vars defs)
+  (oldEnv, prevEnv) <- liftA2 (,) get ask
+  liftIO $ print prevEnv
+  liftIO $ print oldEnv
+  modify (<> prevEnv)
+  v' <- alg v
+  modify (const oldEnv)
+  pure v'
 
 retAtom :: ASTF a -> Interp (ASTF a)
 retAtom (Atom a) = pure $ Atom a
