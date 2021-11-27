@@ -21,11 +21,17 @@ type Interp = StateT Env (ReaderT Env IO)
 
 newtype Env = Env { getEnv :: M.Map VarName AST' }
 
-instance Semigroup Env where (<>) = (Env .) . ((<>) `on` getEnv)
+
+instance Semigroup Env where
+  -- | 'Data.Map.union' used in reverse, since '(<>)' has right fixity but
+  -- 'Data.Map.union' is left-biased. This means that e.g. if one calls
+  -- @e1 <> e2@ then all keys found on both @e1@ and @e2@ will be assigned the
+  -- values in @e2@.
+  (<>) = (Env .) . (flip M.union `on` getEnv)
 
 instance Monoid Env where mempty = Env mempty
 
-instance Show Env where show = show . getEnv
+instance Show Env where show = show . M.toList . getEnv
 
 -- | whole AST definition
 data ASTF r = Atom !VarName
