@@ -9,21 +9,23 @@
     - [x] Deriv datatype not typeclass **NO NEED**: memoization on instance implementor
     - [ ] bonus: QQ TemplateHaskell ()
   - [.] AST building
-    - [.] smart constructors
-- [ ] evaluation
+    - [x] smart constructors
+- [.] evaluation
   - [x] AST error handling
   - [x] LISP -> Haskell types
+  - [.] lambda application
+  - [.] env management
   - [ ] tests
-  - [.] rewrite rules
-    - [ ] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
-    - [ ] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
-    - [.] `'(a b c)` -> `(quote (a b c))`
-      - [ ] what about `'"str"`/`'1`?
+  - [x] rewrite rules
+    - [x] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
+    - [x] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
+    - [x] `'(a b c)` -> `(quote (a b c))`
+      - [x] what about `'"str"`/`'1`?: `quote` everything, non-(atom|list)s get autoquoted
     - [x] `(a . b . c)` -> `(a b c)`
       - [x] `(a . (b . c))` -> `(a b . c)`
-- [ ] general UX
+- [.] general UX
   - [x] `Pos` in syntax errors
   - [ ] `Pos` in runtime errors
     - [ ] thread `Pos` into AST? `Cofree`?
-  - [.] REPL
+  - [x] REPL
   - [x] `stdlib.scm`
