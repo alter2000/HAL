@@ -5,6 +5,7 @@
 module RecursionSchemes
   ( Fix(..)
   , cata
+  , MAlg
   , cataM
   , cataMCps
 
@@ -13,8 +14,9 @@ module RecursionSchemes
   , histo'
   , RAlg
   , para
-  , RMAlg
   , paraM
+  , RMAlg
+  , revCataM
   )
   where
 
@@ -43,14 +45,35 @@ cata :: Functor f => (f a -> a) -> Fix f -> a
 cata f = c where c = f . fmap c . outF
 
 -- | 'cata' but giving out an effectful value
-cataM :: (Monad m, Traversable t) => (t a -> m a) -> Fix t -> m a
+cataM :: (Traversable t, Monad m) => MAlg t m a -> Fix t -> m a
 cataM f = c where c = f <=< (traverse c . outF)
 
-cataMCps :: (Traversable t, Monad m) => (t a -> m a) -> Fix t -> m a
+cataMCps :: (Traversable t, Monad m) => MAlg t m a -> Fix t -> m a
 cataMCps f x = runContT (rec f x) pure
   where
     rec :: (Traversable f, Monad m) => (f a -> m a) -> Fix f -> ContT a m a
     rec alg (Fix ex) = mapM (rec alg) ex >>= ContT . (>>=) . alg
+
+type MAlg f m a = f a -> m a
+
+-- | catamorphism reversed, i.e root-to-leaf, NOT anamorphism
+genRevCata :: (Traversable f, Monad m)
+        => (t -> m a) -- ^ algebra to use
+        -> Fix f      -- ^ structure to catamorph
+        -> (a -> m a) -- ^ continuation
+        -> t          -- ^ still not sure but thanks GHC
+        -> m a
+genRevCata f = cataMCps (pure c)
+  where c k z = f z >>= k
+
+-- | Utility function to avoid using generator counterpart for normal
+-- structures. Unwraps structure once to appease the type gods.
+revCataM :: (Traversable f, Monad m)
+         => (f (Fix f) -> m a) -- ^ algebra
+         -> Fix f              -- ^ structure
+         -> m a
+revCataM alg x = genRevCata alg x pure (outF x)
+
 -- }}}
 
 -- Histo/futumorphisms {{{
