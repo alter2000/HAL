@@ -6,42 +6,31 @@ module Lib.AST
   where
 
 
-import Debug.Trace
-
-import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Applicative
 import Control.Arrow
 import qualified Data.Map as M
 
 import Control.Exception
 import System.IO
-import System.Console.Haskeline
 
 import Types.Exceptions
 import RecursionSchemes
-import Types.Cofree
 
 import Types.AST
 import Types.Interp
 import Types.Pos
 
-type ASTPos = Cofree ASTF Pos
+-- evalTerm :: AST' -> Env -> InputT IO (AST', Env)
+-- evalTerm ast e = liftIO $ catch (runStep ast e)
+--   (\ex -> halExcept ex >> pure (list [], e))
 
-type Alg f a = f a -> a
-
-evalTerm :: AST' -> Env -> InputT IO (AST', Env)
-evalTerm ast e = liftIO $ handle (halExcept >>> (>> pure (list [], e)))
-  (runStep (applyRewriteRules ast) e)
+-- runStep :: AST' -> Env -> IO (AST', Env)
+-- runStep = applyRewriteRules >>> cataMCps alg >>> runInterp >=> resolveScope
 
 runStep :: AST' -> Env -> IO (AST', Env)
-runStep = cataMCps alg >>> runInterp >=> resolveScope
-
--- eval :: AST' -> Interp AST'
--- eval a = get >>= (runStep a (flip fmap) \r ->
---             case r of
---               Left he -> liftIO (halExcept he) >> pure $ list []
---               Right (a', e') -> put e' >> pure a')
+runStep = applyRewriteRules >>> revCataM alg >>> runInterp >=> resolveScope
 
 -- | needs more flesh, usable while inside 'Control.Monad.Except.ExceptT'
 halExcept :: HALError -> IO ()
@@ -98,14 +87,9 @@ getAtom (Atom a) = a
 getAtom _ = throw $ TypeMismatch nPos "expected atom"
 
 newEnv :: [ASTF a] -> [ASTF AST'] -> Env
-newEnv vars = Env . fmap Fix . M.fromList . zipWith ((,) . getAtom) vars
+newEnv vars = packEnv . zipWith ((,) . getAtom) vars
+  where packEnv = Env . fmap Fix . M.fromList
 
--- getLambda :: VarName -> [AST'] -> Interp AST'
--- getLambda l as = maybe (trace "lambda?" $ throw $ UndefinedSymbol nPos l)
---   (`applyLambda` as) . M.lookup l . getEnv =<< get
-
-applyLambda :: AST' -> [AST'] -> Interp AST'
-applyLambda = undefined -- ask
 -- }}}
 
 -- Builtins {{{
@@ -183,7 +167,8 @@ rewrite :: ASTF AST' -> AST'
 rewrite (List [Fix(Atom "define"), Fix(List (Fix(Atom fname) : args)), body])
   = list [atom "define", atom fname, list [atom "lambda", list args, body]]
 rewrite (List [Fix(Atom "let"), Fix(List pairs), body])
-  = list $ [list [atom "lambda", list $ fsts pairs, body]] <> snds pairs
+  = list $ [list [atom "lambda", list $ fst <$> unzipList pairs
+                 , body]] <> fmap snd (unzipList pairs)
 -- rewrite (List [Fix(List[Fix(Atom "lambda"), Fix(List args), Fix(List bd)])])
 --   = gets $ Fix . Lambda (getAtom . outF <$> args) bd
 rewrite (List (Fix(Atom a):as)) = list $ maybe (atom a:as)
@@ -194,10 +179,4 @@ unzipList :: [AST'] -> [(AST', AST')]
 unzipList [] = []
 unzipList (Fix(List [a, b]):xs) = (a, b) : unzipList xs
 unzipList (_:xs) = unzipList xs
-
-fsts :: [AST'] -> [AST']
-fsts = fmap fst . unzipList
-
-snds :: [AST'] -> [AST']
-snds = fmap snd . unzipList
 -- }}}
