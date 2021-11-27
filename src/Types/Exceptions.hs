@@ -32,7 +32,7 @@ instance Exception HALError where
       <> " arguments but got " <> show h
     BadSpecialForm    at what -> sl at "bad special form: " <> what
     UnboundVar        at what -> sl at "unbound symbol: " <> what
-    TypeMismatch      at t    -> sl at "type error: got " <> t
+    TypeMismatch      at t    -> sl at "type error: " <> t
 
 sl :: Pos -> String -> String
 sl _at str =  " -- " <> str

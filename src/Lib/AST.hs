@@ -14,7 +14,6 @@ import Data.Function
 import Data.Foldable
 
 import qualified Data.Map as M
-import Data.Maybe
 import Control.Exception
 
 import Types.Exceptions
@@ -132,23 +131,30 @@ unzipList (_:xs) = unzipList xs
 
 -- Builtins {{{
 builtins :: M.Map VarName (Func Interp)
-builtins = Func <$> M.fromList [
-    ("quote", quote)
-  , ("car", car)
-  , ("cdr", cdr)
-  , ("cons", cons)
-  , ("atom?", isAtom)
-  , ("cond", cond)
-  , ("+",   varOp (int 0) (wrap int (+) getInt))
-  , ("-",   varOp (int 0) (wrap int (-) getInt))
-  , ("*",   varOp (int 1) (wrap int (*) getInt))
-  , ("/",   binOp (wrap int div getInt))
-  , ("div", binOp (wrap int div getInt))
-  , ("mod", binOp (wrap int mod getInt))
-  , ("eq?", binOp eqAll)
-  , ("=",   boolOp2 getInt (==))
-  , ("<",   boolOp2 getInt (<))
+builtins = Func <$> M.fromList
+  [ ("quote" , quote)
+  , ("car"   , car . fmap outF)
+  , ("cdr"   , cdr . fmap outF)
+  , ("cons"  , cons)
+  , ("atom?" , isAtom . fmap outF)
+  , ("cond"  , cond . fmap outF)
+  , ("+"     , varOp (wrap int (+) getInt) (int 0))
+  , ("-"     , varOp (wrap int (-) getInt) (int 0))
+  , ("*"     , varOp (wrap int (*) getInt) (int 1))
+  , ("/"     , binOp (wrap int div getInt))
+  , ("div"   , binOp (wrap int div getInt))
+  , ("mod"   , binOp (wrap int mod getInt))
+  , ("eq?"   , binOp (eqAll `on` outF))
+  , ("="     , boolOp2 getInt (==))
+  , ("<"     , boolOp2 getInt (<))
   ]
+
+wrap :: Applicative m => (base -> up)       -- ^ wrapper to call in the end
+                      -> (b2 -> b2 -> base) -- ^ binary operation
+                      -> (p -> m b2)        -- ^ unwrapper
+                      -> p -> p -> m up
+wrap inF op unF = fmap inF ... (liftA2 op `on` unF)
+  where k ... m = (k .) . m
 
 primEnv :: Env
 primEnv = Env $ mkBuiltin <$> builtins
@@ -158,24 +164,24 @@ quote [Fix(List xs)] = pure . list $ atom "quote" : xs
 quote [e] = pure . list $ atom "quote" : [e]
 quote as  = throw $ BadArguments nPos (length as) 1
 
-cond :: [AST'] -> Interp AST'
-cond (Fix (List [Fix a, b]):rest) = alg a >>= \x -> case x of
+cond :: [ASTF AST'] -> Interp AST'
+cond ((List [Fix a, b]):rest) = alg a >>= \x -> case x of
   Fix (Bool True) -> pure b
   Fix (Bool False) -> cond rest
   _ -> throw $ TypeMismatch nPos "cond only handles bools"
 cond _ = throw $ TypeMismatch nPos "cond only handles bools"
 
 -- TODO: really need to handle 'quote'?
-car :: [AST'] -> Interp AST'
-car (Fix(List[ Fix(Atom "quote"), Fix(List(r:_)) ]):_) = pure r
-car (Fix a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "car", Fix a']
-car (Fix    (List(a          :_)):_) = pure a
+car :: [ASTF AST'] -> Interp AST'
+car ((List[ Fix(Atom "quote"), Fix(List(r:_)) ]):_) = pure r
+car (a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "car", Fix a']
+car (   (List(a          :_)):_) = pure a
 car _ = pure $ list []
 
-cdr :: [AST'] -> Interp AST'
+cdr :: [ASTF AST'] -> Interp AST'
 -- cdr (Fix    (List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
-cdr (Fix a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "cdr", Fix a']
-cdr (Fix    (List(_          :r)):_) = pure $ list r
+cdr (a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "cdr", Fix a']
+cdr (   (List(          _:r)):_) = pure $ list r
 cdr _ = pure $ list []
 
 cons :: [AST'] -> Interp AST'
@@ -183,60 +189,58 @@ cons [a, Fix (List bs)] = pure $ list $ a:bs
 cons [a, b]             = pure $ list [a, b]
 cons as = throw $ BadArguments nPos 2 (length as)
 
-isAtom :: [AST'] -> Interp AST'
-isAtom [Fix(List[Fix(Atom "quote"), Fix(List [])])] = pure $ bool True
-isAtom [Fix(List[Fix(Atom "quote"), Fix(Atom _)])] = pure $ bool True
-isAtom [Fix a@(Atom _)] = isAtom . (:[]) =<< alg a
-isAtom [Fix (Int _)] = pure $ bool True
-isAtom [Fix (Bool _)] = pure $ bool True
-isAtom [Fix (Str _)] = pure $ bool True
-isAtom [Fix DottedList{}] = pure $ bool False
-isAtom [Fix a] = isAtom . (:[]) =<< alg a
+isAtom :: [ASTF AST'] -> Interp AST'
+isAtom [List[Fix(Atom "quote"), Fix(List [])]] = pure $ bool True
+isAtom [List[Fix(Atom "quote"), Fix(Atom _)]] = pure $ bool True
+isAtom [a@(Atom _)] = isAtom . (:[]) . outF =<< alg a
+isAtom [Int _] = pure $ bool True
+isAtom [Bool _] = pure $ bool True
+isAtom [Str _] = pure $ bool True
+isAtom [DottedList{}] = pure $ bool False
+isAtom [a] = isAtom . (:[]) . outF =<< alg a
 isAtom l = throw $ BadArguments nPos (length l) 1
 
 type BinOp r = r -> r -> Interp r
 
-varOp :: AST' -- ^ Expr to break down
-      -> BinOp AST' -- ^ Folding function
+varOp :: BinOp AST' -- ^ Folding function
+      -> AST' -- ^ Expr to break down
       -> [AST'] -- ^ Arguments
       -> Interp AST'
 varOp _ _ [] = throw $ BadArguments nPos 0 2
-varOp _ x [a, b] = x a b
-varOp k x as = foldlM x k as
+varOp x _ [a, b] = x a b
+varOp x k as = foldlM x k as
 
 binOp :: BinOp AST' -> [AST'] -> Interp AST'
 binOp op [a, b] = a `op` b
 binOp _ s = throw $ BadArguments nPos (length s) 2
 
-boolOp2 :: (AST' -> a) -> (a -> a -> Bool) -> [AST'] -> Interp AST'
-boolOp2 f cmp [a, b] = pure $ bool $ f a `cmp` f b
+boolOp2 :: (AST' -> Interp a) -> (a -> a -> Bool) -> [AST'] -> Interp AST'
+boolOp2 f cmp [a, b] = bool <$> (cmp <$> f a <*> f b)
 boolOp2 _ _ s = throw $ BadArguments nPos (length s) 2
 
-getInt :: AST' -> Integer
-getInt (Fix (List [s])) = getInt s
-getInt (Fix (DottedList [] s)) = getInt s
-getInt (Fix (DottedList [s] _)) = getInt s
-getInt (Fix (Int n)) = n
-getInt (Fix (Str n)) = maybe 0 fst . listToMaybe $ reads n
+getInt :: AST' -> Interp Integer
+-- getInt (Fix (List [s])) = getInt s
+-- getInt (Fix (DottedList [] s)) = getInt s
+-- getInt (Fix (DottedList [s] _)) = getInt s
+-- getInt (Fix (Str n)) = maybe 0 fst . listToMaybe $ reads n
+getInt (Fix (Int n)) = pure n
+getInt (Fix n@(Atom _)) = getInt =<< alg n
+getInt (Fix x@List{}) = getInt =<< alg x
 getInt _ = throw $ TypeMismatch nPos "not a numeral"
 
-wrap :: (base -> result) -> (base' -> base' -> base)
-     -> (obj -> base') -> obj -> obj -> Interp result
-wrap w op up = (pure .) . (w .) . (op `on` up)
-
-eqAll :: AST' -> AST' -> Interp AST'
-eqAll (Fix  (Str a))  (Fix  (Str b)) = pure $ bool $ a == b
-eqAll (Fix (Bool a))  (Fix (Bool b)) = pure $ bool $ a == b
-eqAll (Fix  (Int a))  (Fix  (Int b)) = pure $ bool $ a == b
-eqAll (Fix (List [Fix(Atom "quote"), Fix(List [])]))
-      (Fix (List [Fix(Atom "quote"), Fix(List [])])) = pure $ bool True
-eqAll (Fix (List [Fix(Atom "quote"), Fix(Atom a)]))
-      (Fix (List [Fix(Atom "quote"), Fix(Atom b)])) = pure $ bool $ a == b
-eqAll (Fix DottedList{}) (Fix DottedList{}) = pure $ bool False
-eqAll (Fix a) (Fix b) = do
+eqAll :: ASTF AST' -> ASTF AST' -> Interp AST'
+eqAll (Str a)  (Str b) = pure $ bool $ a == b
+eqAll (Bool a)  (Bool b) = pure $ bool $ a == b
+eqAll (Int a)  (Int b) = pure $ bool $ a == b
+eqAll ((List [Fix(Atom "quote"), Fix(List [])]))
+      ((List [Fix(Atom "quote"), Fix(List [])])) = pure $ bool True
+eqAll ((List [Fix(Atom "quote"), Fix(Atom a)]))
+      ((List [Fix(Atom "quote"), Fix(Atom b)])) = pure $ bool $ a == b
+eqAll DottedList{} DottedList{} = pure $ bool False
+eqAll a b = do
   x <- alg a
   y <- alg b
-  eqAll x y
+  (eqAll `on` outF) x y
 -- }}}
 
 -- alg all'@(List (Fix(Lambda vars (Fix body) env): vals)) = do
