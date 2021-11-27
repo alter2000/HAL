@@ -6,10 +6,12 @@ import System.Exit ( exitWith, ExitCode(..) )
 import System.IO
 import Control.Exception
 import System.Console.Haskeline
+import Control.Arrow
 
 import Control.Monad
 import Control.Monad.Trans
 import Data.Char
+import qualified Data.Map as M
 
 import Types.Exceptions ( HALError )
 import Types.AST
@@ -18,8 +20,8 @@ import Lib.AST
 import Parser.ParseError
 
 -- | needs more flesh, usable while inside 'Control.Monad.Except.ExceptT'
-pExcept :: (String -> IO ()) -> ParseError -> IO ()
-pExcept f = f . displayException
+pExcept :: (String -> IO ()) -> IO a -> ParseError -> IO a
+pExcept f = flip $ displayException >>> f >>> (>>)
 
 -- | separate from 'parserExcept' to carry over elsewhere
 replExcept :: HALError -> IO ()
@@ -43,20 +45,32 @@ settings = Settings
   }
 
 repl :: Env -> IO ()
-repl env = runInputT settings $ till . fmap snd $ getInputLine "><> fishy :: "
+repl env = runInputT settings $ till . fmap snd $ getInputLine "><> :: "
   >>= \input -> case input of
     Nothing -> pure (env, False)
-    Just i | filter (not . isSpace) i == "" -> pure (env, True)
-           | otherwise -> getExternalPrint >>= \pp -> liftIO $ case parse i of
-      Left ex -> pExcept pp ex >> pure (env, True)
-      Right ast -> handle (\e -> except e >> pure (env, True)) $
-        runStep ast env >>= \(a', e') -> pp (show a') >> pure (e', True)
+    Just ":env" -> prettyPrintEnv env >> pure (env, True)
+    Just i -> handleInput i env
+
+handleInput :: MonadIO m => [Char] -> Env -> InputT m (Env, Bool)
+handleInput i env | filter (not . isSpace) i == "" = pure (env, True)
+  | otherwise = do
+    pp <- getExternalPrint
+    liftIO $ case parse i of
+      Left ex -> pExcept pp (pure (env, True)) ex
+      Right ast -> handle (except >>> (>> pure (env, True))) $ do
+        (a', e') <- runStep ast env
+        pp (show a') >> pure (e', True)
+
+prettyPrintEnv :: Env -> InputT IO ()
+prettyPrintEnv (Env e) = liftIO . mapM_ putStrLn . showKeyVal $ M.toList e
+  where showKeyVal :: [(VarName, AST')] -> [String]
+        showKeyVal = fmap $ \(a, b) -> a <> " : "<> show b
 
 
 -- maybe needs ErrorT to actually return useful value (env + AST')
 interpretFile :: Env -> FilePath -> IO (AST', Env)
 interpretFile env f = readFile f >>= either
-  (\pe -> pExcept (hPutStrLn stderr) pe >> exitWith (ExitFailure 84))
+  (pExcept (hPutStrLn stderr) (exitWith (ExitFailure 84)))
   (evalFile env) . parseFile f
 
 evalFile :: Env -> [AST'] -> IO (AST', Env)

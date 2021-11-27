@@ -35,4 +35,4 @@ instance Exception HALError where
     TypeMismatch      at t    -> sl at "type error: got " <> t
 
 sl :: Pos -> String -> String
-sl at str = show at <> " -- " <> str
+sl _at str =  " -- " <> str
