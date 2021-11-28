@@ -7,6 +7,8 @@ module Lib.AST
   where
 
 
+import Debug.Trace
+
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Applicative
@@ -37,7 +39,7 @@ alg (DottedList as t) = pure $ dlist as t
 alg (Lambda ps b c) = pure $ func ps b c
 alg (Builtin b) = pure $ mkBuiltin b
 
-alg (List [Fix(Atom "quote"), Fix(List [])]) = pure $ mkQuote $ list []
+alg (List [Fix(Atom "quote"), Fix(List [])]) = pure $ list []
 alg (List [Fix(Atom "quote"), a]) = pure a
 
 alg (List [Fix(Atom "define"), Fix var, Fix def]) =
@@ -45,19 +47,17 @@ alg (List [Fix(Atom "define"), Fix var, Fix def]) =
 alg (List [Fix(Atom "lambda"), Fix(List params), body]) =
   func (getAtom . outF <$> params) body <$> pullEnv
 
-alg (List [Fix(Atom "cdr"), Fix(List [Fix(Atom "quote"),
-  Fix(List (_:xs))])]) = pure $ list xs
-alg (List [Fix(Atom "cdr"), Fix arg@(List (x:xs))]) = case outF x of
-  Atom  _ -> alg arg >>= alg . List . (atom "cdr":) . pure
-  _ -> pure $ list xs
-
 alg (List [Fix(Atom "car"), Fix(List [Fix(Atom "quote"),
   Fix(List (x:_))])]) = pure x
 alg (List [Fix(Atom "car"), Fix arg@(List (x:_))]) = case outF x of
   Atom  _ -> alg arg >>= alg . List . (atom "car":) . pure
   _ -> pure x
 
--- alg (List (Fix(Atom "cond") :rest)) = cond (outF <$> rest)
+alg (List [Fix(Atom "cdr"), Fix(List [Fix(Atom "quote"),
+  Fix(List (_:xs))])]) = pure $ list xs
+alg (List [Fix(Atom "cdr"), Fix arg@(List (x:xs))]) = case outF x of
+  Atom  _ -> alg arg >>= alg . List . (atom "cdr":) . pure
+  _ -> pure $ list xs
 
 alg (List (Fix(Builtin (Func a)):as)) = a as
 alg (List (Fix x : xs)) = alg x >>= \(Fix var) -> case var of
@@ -76,12 +76,12 @@ applyLambda _ _ = error "Lib.AST.applyLambda: unreachable code (not lambda)"
 
 -- Helpers {{{
 applyCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
-applyCtx vars defs body = local (<> newEnv vars defs) (alg body)
+applyCtx vars defs body = local (newEnv vars defs <>) (alg body)
 
 evalCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
 evalCtx vars defs body = do
   defs' <- fmap outF <$> traverse alg defs
-  modify (<> newEnv vars defs')
+  modify (newEnv vars defs' <>)
   alg body
 
 isParams :: ASTF AST' -> Interp (ASTF AST')
@@ -128,8 +128,8 @@ rewrite (List [Fix(Atom "define"), Fix(List (Fix(Atom fname) : args)), body])
 rewrite (List [Fix(Atom "let"), Fix(List pairs), body])
   = list $ [list [atom "lambda", list $ fst <$> unzipList pairs
                  , body]] <> fmap snd (unzipList pairs)
-rewrite (List (Fix(Atom a):as)) = list $ maybe (atom a:as)
-  ((: as) . mkBuiltin) $ M.lookup a builtins
+-- rewrite (List (Fix(Atom a):as)) = list $ maybe (atom a:as)
+--   ((: as) . mkBuiltin) $ M.lookup a builtins
 rewrite a = Fix a
 
 unzipList :: [AST'] -> [(AST', AST')]
@@ -188,21 +188,31 @@ cond _ = throw $ TypeMismatch nPos "cond only handles bools"
 car :: [ASTF AST'] -> Interp AST'
 car ((List[ Fix(Atom "quote"), Fix(List(r:_)) ]):_) = pure r
 car (a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "car", Fix a']
-car (   (List(a          :_)):_) = pure a
-car _ = pure $ list []
+car ((List(a:_)):_) = pure a
+car ((DottedList (a:_) _):_) = pure a
+car ((DottedList []  b):_) = pure b
+car (a@(Atom _):_) = do (Fix v) <- alg a
+                        car [v]
+car a = trace (show a) $ throw $ TypeMismatch nPos "car: need list/dotlist"
 
 cdr :: [ASTF AST'] -> Interp AST'
-cdr (   (List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
+cdr ((List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
 cdr (a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "cdr", Fix a']
-cdr (   (List(          _:r)):_) = pure $ list r
-cdr _ = pure $ list []
+cdr ((List(_:r)):_) = pure $ list r
+cdr ((DottedList _ b):_) = pure b
+cdr (a@(Atom _):_) = do (Fix v) <- alg a
+                        cdr [v]
+cdr a = trace (show a) $ throw $ TypeMismatch nPos "cdr: need list/dotlist"
 
 cons :: [AST'] -> Interp AST'
-cons [a, Fix b@(List _)] = alg b >>= \(Fix b') -> case b' of
-  List xs -> pure . list $ a : xs
-  DottedList xs x -> pure $ dlist (a:xs) x
-  bs -> pure $ dlist [a] (Fix bs)
-cons [a, b] = pure $ list [a, b]
+cons [Fix a, Fix b@(List _)] = do
+  a' <- alg a
+  b' <- alg b
+  case outF b' of
+    List xs -> pure . list $ a' : xs
+    DottedList xs x -> pure $ dlist (a':xs) x
+    bs -> pure $ dlist [a'] (Fix bs)
+cons [a, b] = pure $ dlist [a] b
 cons as = throw $ BadArguments nPos 2 (length as)
 
 display :: (String -> IO ()) -> [AST'] -> Interp AST'
@@ -218,7 +228,7 @@ astToStr :: ASTF (Fix ASTF) -> String
 astToStr (List [Fix(Atom "quote"), Fix x]) = '\'' : astToStr x
 astToStr (Atom x) = show $ atom x
 astToStr  (Int x) = show $ int x
-astToStr  (Str x) = show $ str x
+astToStr  (Str x) = show x
 astToStr (Bool x) = show $ bool x
 astToStr (Builtin x) = show $ mkBuiltin x
 astToStr (Lambda x y z) = show $ Fix $ Lambda x y z
@@ -229,12 +239,13 @@ astToStr (List xs) = "(" <> unwords (astToStr . outF <$> xs) <> ")"
 isAtom :: [ASTF AST'] -> Interp AST'
 isAtom [List[Fix(Atom "quote"), Fix(List [])]] = pure $ bool True
 isAtom [List[Fix(Atom "quote"), Fix(Atom _)]] = pure $ bool True
-isAtom [a@(Atom _)] = isAtom . (:[]) . outF =<< alg a
-isAtom [Int _] = pure $ bool True
-isAtom [Bool _] = pure $ bool True
-isAtom [Str _] = pure $ bool True
+isAtom [a@Atom{}] = alg a >>= \(Fix v) -> isAtom [v]
+isAtom  [Int{}] = pure $ bool True
+isAtom [Bool{}] = pure $ bool True
+isAtom  [Str{}] = pure $ bool True
 isAtom [DottedList{}] = pure $ bool False
-isAtom [a] = isAtom . (:[]) . outF =<< alg a
+isAtom [List{}] = pure $ bool False
+isAtom [a] = alg a >>= \(Fix v) -> isAtom [v]
 isAtom l = throw $ BadArguments nPos (length l) 1
 
 type BinOp r = r -> r -> Interp r
@@ -266,20 +277,22 @@ getInt (Fix x@List{}) = getInt =<< alg x
 getInt _ = throw $ TypeMismatch nPos "not a numeral"
 
 eqAll :: ASTF AST' -> ASTF AST' -> Interp AST'
-eqAll (Str a)  (Str b) = pure $ bool $ a == b
+eqAll  (Str a)   (Str b) = pure $ bool $ a == b
 eqAll (Bool a)  (Bool b) = pure $ bool $ a == b
-eqAll (Int a)  (Int b) = pure $ bool $ a == b
-eqAll ((List [Fix(Atom "quote"), Fix(List [])]))
-      ((List [Fix(Atom "quote"), Fix(List [])])) = pure $ bool True
-eqAll ((List [Fix(Atom "quote"), Fix(List _)]))
-      ((List [Fix(Atom "quote"), Fix(List _)])) = pure $ bool False
+eqAll  (Int a)   (Int b) = pure $ bool $ a == b
+eqAll (Atom a)  (Atom b) = pure $ bool $ a == b
 eqAll ((List [Fix(Atom "quote"), Fix(Atom a)]))
       ((List [Fix(Atom "quote"), Fix(Atom b)])) = pure $ bool $ a == b
--- eqAll ((List [Fix(Atom "quote"), Fix a]))
---       ((List [Fix(Atom "quote"), Fix b])) = eqAll a b
+eqAll ((List [Fix(Atom "quote"), Fix(List [])]))
+      ((List [Fix(Atom "quote"), Fix(List [])])) = pure $ bool True
+eqAll _ ((List [Fix(Atom "quote"), Fix(List _)])) = pure $ bool False
+eqAll ((List [Fix(Atom "quote"), Fix(List _)])) _ = pure $ bool False
+eqAll ((List [Fix(Atom "quote"), Fix a]))
+      ((List [Fix(Atom "quote"), Fix b])) = eqAll a b
+eqAll (List []) (List []) = pure $ bool True
 eqAll DottedList{} DottedList{} = pure $ bool False
 eqAll a b = do
-  x <- alg a
-  y <- alg b
-  (eqAll `on` outF) x y
+  (Fix a') <- alg a
+  (Fix b') <- alg b
+  eqAll a' b'
 -- }}}

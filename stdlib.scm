@@ -27,9 +27,8 @@
     (zip k (cdr v))))
 
 (define (fold-left fn acc xs)
-  (if (null? xs)
-      acc
-      (fold-left fn (fn acc (car xs)) (cdr xs))))
+  (cond ((null? xs) acc)
+    (#t (fold-left fn (fn acc (car xs)) (cdr xs)))))
 
 (define (fold-right fn acc xs)
   (if (null? xs)
@@ -71,6 +70,7 @@
 (define (<= x y) (or (< x y) (eq? x y)))
 (define (> x y) (not (<= x y)))
 (define (even? x) (eq? 0 (mod x 2)))
+(define (odd? x) (not (even? x)))
 (define (abs x) (if (< x 0) (- x) x))
 ;; }}}
 ;; On functions {{{
@@ -83,19 +83,19 @@
 ;; car/cdr combos {{{
 (define (caar x) (car (car x)))
 (define (cadr x) (car (cdr x)))
+(define (cddr x) (cdr (cdr x)))
 (define (cadar x) (car (cdr (car x))))
 (define (caddr x) (car (cdr (cdr x))))
 (define (caddar x) (car (cdr (cdr (car x)))))
 ;; }}}
 ;; Big bois {{{
 (define (fact x)
-  (if (eq? x 1)
-    1
-    (* x (fact (- x 1)))))
+  (cond ((eq? x 1) 1)
+    (#t (* x (fact (- x 1))))))
 
 (define (fib x)
-  (cond ((eq? x 0) (0))
-        ((eq? x 1) (1))
+  (cond ((eq? x 0) 0)
+        ((eq? x 1) 1)
         (#t (+ (fib (- x 1))
                (fib (- x 2))))))
 

@@ -53,7 +53,8 @@ handleInput :: [Char] -> Env -> InputT (StateT Env IO) Bool
 handleInput i env | filter (not . isSpace) i == "" = pure True
   | otherwise = do
     pp <- getExternalPrint
-    either (liftIO . pExcept pp (pure True)) (threadEnv pp env) (parse i)
+    either (liftIO . pExcept pp (pure True))
+           (threadEnv pp env . applyRewriteRules) (parse i)
 
 threadEnv :: (String -> IO ()) -> Env -> AST'
           -> InputT (StateT Env IO) Bool

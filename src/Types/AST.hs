@@ -20,7 +20,7 @@ type VarName = String
 type Interp = StateT Env (ReaderT Env IO)
 
 newtype Env = Env { getEnv :: M.Map VarName AST' }
-
+  deriving (Eq)
 
 instance Semigroup Env where
   -- | 'Data.Map.union' used in reverse, since '(<>)' has right fixity but
@@ -47,11 +47,13 @@ data ASTF r = Atom !VarName
             | Lambda { fnArgs :: ![VarName]
                      , fnBody :: !r
                      , fnEnv  :: Env }
-            deriving (Show)
+            deriving (Show, Eq)
 
 newtype Func m = Func { getFn :: [AST'] -> m AST' }
 
 instance Show (Func m) where show _ = "#<func>"
+-- | since 'Func' is only used by primitives and 'M.lookup' is trusted
+instance   Eq (Func m) where _ == _ = True
 
 -- Instances {{{
 instance Functor ASTF where
@@ -103,6 +105,17 @@ instance Show1 ASTF where
 showList' :: ShowS -> (a -> b -> ShowS) -> a -> [b] -> ShowS
 showList' end pf p =
   fmap (pf p) >>> L.intersperse (showChar ' ') >>> foldr (.) end
+
+instance Eq1 ASTF where
+  liftEq _ (Atom a) (Atom b) = a == b
+  liftEq _  (Int a)  (Int b) = a == b
+  liftEq _  (Str a)  (Str b) = a == b
+  liftEq _ (Bool a) (Bool b) = a == b
+  liftEq e (List a) (List b) = and $ zipWith e a b
+  liftEq e (DottedList as a) (DottedList bs b) = and $ zipWith e (a:as) (b:bs)
+  liftEq e (Lambda vs body env) (Lambda vs' body' env') =
+    vs == vs' && e body body' && env == env'
+  liftEq _ _ _ = False
 -- }}}
 
 type AST' = Fix ASTF

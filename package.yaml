@@ -56,3 +56,7 @@ tests:
     - HAL
     - hedgehog
     - hspec
+    - tasty-golden
+    - tasty
+    - pretty-simple
+    - bytestring
