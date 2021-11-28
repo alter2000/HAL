@@ -9,7 +9,7 @@ import System.Console.Haskeline hiding (Completion(..))
 import Control.Arrow
 
 import Control.Monad
-import Control.Monad.Trans
+import Control.Monad.State
 import Data.Char
 import qualified Data.Map as M
 
@@ -35,9 +35,7 @@ except = hPutStrLn stderr . displayException
 halt :: SomeException -> IO a
 halt e = except e >> exitWith (ExitFailure 84)
 
--- | TODO: custom from primEnv <> curEnv?
--- will need to grab 'Env' from 'Interp', therefore build @InputT Interp a@
-settings :: Settings IO
+settings :: Settings (StateT Env IO)
 settings = Settings
   { complete = completeFilename
   , historyFile = Just "./hal_history"
@@ -45,29 +43,36 @@ settings = Settings
   }
 
 repl :: Env -> IO ()
-repl env = runInputT settings $ till . fmap snd $ getInputLine "><> :: "
-  >>= \input -> case input of
-    Nothing -> pure (env, False)
-    Just ":env" -> prettyPrintEnv env >> pure (env, True)
+repl env = flip evalStateT env $ runInputT settings
+  $ till $ getInputLine "><> :: " >>= \input -> case input of
+    Nothing -> pure False
+    Just ":env" -> prettyPrintEnv >> pure True
     Just i -> handleInput i env
 
-handleInput :: MonadIO m => [Char] -> Env -> InputT m (Env, Bool)
-handleInput i env | filter (not . isSpace) i == "" = pure (env, True)
+handleInput :: [Char] -> Env -> InputT (StateT Env IO) Bool
+handleInput i env | filter (not . isSpace) i == "" = pure True
   | otherwise = do
     pp <- getExternalPrint
-    liftIO $ case parse i of
-      Left ex -> pExcept pp (pure (env, True)) ex
-      Right ast -> handle (except >>> (>> pure (env, True))) $ do
-        (a', e') <- runStep ast env
-        pp (show a') >> pp "\n" >> pure (e', True)
+    either (liftIO . pExcept pp (pure True)) (threadEnv pp env) (parse i)
 
-prettyPrintEnv :: Env -> InputT IO ()
-prettyPrintEnv (Env e) = liftIO . mapM_ putStrLn . showKeyVal $ M.toList e
+threadEnv :: (String -> IO ()) -> Env -> AST'
+          -> InputT (StateT Env IO) Bool
+threadEnv pp env ast = do
+  env' <- lift get
+  (r, e') <- liftIO $ handle (except >>> (>> pure (True, env))) $ do
+    (a', e') <- runStep ast env'
+    printAST pp a' >> pure (True, e')
+  lift (put e') >> pure r
+
+
+prettyPrintEnv :: InputT (StateT Env IO) ()
+prettyPrintEnv = liftIO . mapM_ putStrLn . showKeyVal
+  . M.toList . dropPrimitives . getEnv =<< lift get
   where showKeyVal :: [(VarName, AST')] -> [String]
-        showKeyVal = fmap $ \(a, b) -> a <> " : "<> show b
+        showKeyVal = fmap $ \(a, b) -> a <> " : " <> show b
+        dropPrimitives = flip M.difference $ getEnv primEnv
 
 
--- maybe needs ErrorT to actually return useful value (env + AST')
 interpretFile :: Env -> FilePath -> IO (AST', Env)
 interpretFile env f = readFile f >>= either
   (pExcept (hPutStrLn stderr) (exitWith (ExitFailure 84)))
