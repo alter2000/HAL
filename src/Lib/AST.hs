@@ -48,14 +48,24 @@ alg (List [Fix(Atom "define"), Fix var, Fix def]) = do
 alg (List [Fix(Atom "lambda"), Fix(List params), body]) =
   func (getAtom . outF <$> params) body <$> pullEnv
 
+alg (List [Fix(Atom "cdr"), Fix(List [Fix(Atom "quote"),
+  Fix(List (_:xs))])]) = pure $ list xs
+alg (List [Fix(Atom "cdr"), Fix arg@(List (x:xs))]) = case outF x of
+  Atom  _ -> alg arg >>= \v -> alg . List $ [atom "cdr", v]
+  _ -> pure $ list xs
+
+alg (List [Fix(Atom "car"), Fix(List [Fix(Atom "quote"),
+  Fix(List (x:_))])]) = pure x
+alg (List [Fix(Atom "car"), Fix arg@(List (x:_))]) = case outF x of
+  Atom  _ -> alg arg >>= \v -> alg . List $ [atom "car", v]
+  _ -> pure x
+
 alg (List (Fix(Builtin (Func a)):as)) = a as
-alg all'@(List (Fix x : xs)) = do
-  (Fix var) <- alg x
-  case var of
-    (Builtin (Func f)) -> f xs
-    l@Lambda{} -> do
-      applyLambda l xs
-    x' -> throw $ TypeMismatch nPos $ show x' <> ": not a function"
+alg (List (Fix x : xs)) = alg x >>= \var -> case outF var of
+  (Builtin (Func f)) -> f xs
+  l@Lambda{} -> do
+    applyLambda l xs
+  x' -> throw $ TypeMismatch nPos $ show x' <> ": not a function"
 alg (List []) = throw $ TypeMismatch nPos "cannot eval empty list"
 
 applyLambda :: ASTF (Fix ASTF) -> [Fix ASTF] -> Interp AST'
@@ -167,12 +177,10 @@ quote [e] = pure . list $ atom "quote" : [e]
 quote as  = throw $ BadArguments nPos (length as) 1
 
 cond :: [ASTF AST'] -> Interp AST'
-cond ((List [Fix a, Fix b]):rest) = do
-  x <- outF <$> alg a
-  case x of
-    Bool  True -> alg b
-    Bool False -> cond rest
-    _ -> throw $ TypeMismatch nPos "cond only handles bools"
+cond ((List [Fix a, Fix b]):rest) = alg a >>= \x -> case outF x of
+  Bool  True -> alg b
+  Bool False -> cond rest
+  _ -> throw $ TypeMismatch nPos "cond only handles bools"
 cond _ = throw $ TypeMismatch nPos "cond only handles bools"
 
 -- TODO: really need to handle 'quote'?
@@ -196,11 +204,13 @@ cons as = throw $ BadArguments nPos 2 (length as)
 display :: (String -> IO ()) -> [AST'] -> Interp AST'
 display pF a = do
   v <- traverse alg (outF <$> a)
-  liftIO $ traverse_ printAST v >> pF "\n"
+  liftIO $ traverse_ (printAST pF) v >> pF "\n"
   pure . mkQuote $ list []
-    where printAST (Fix(List[Fix (Atom "quote"), x])) = pF $ '\'' : show x
-          printAST (Fix(Str x)) = pF x
-          printAST x = pF $ show x
+
+printAST ::(String -> IO ()) -> Fix ASTF -> IO ()
+printAST pF (Fix(List[Fix (Atom "quote"), x])) = pF $ '\'' : show x
+printAST pF (Fix(Str x)) = pF x
+printAST pF x = pF $ show x
 
 isAtom :: [ASTF AST'] -> Interp AST'
 isAtom [List[Fix(Atom "quote"), Fix(List [])]] = pure $ bool True
