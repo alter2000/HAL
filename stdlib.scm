@@ -184,7 +184,7 @@
 
 (define (fizzbuzz-go i n)
   (if (<= i n)
-      ((let ((x (rem i 3)) (y (rem i 5)))
+      ((let ((x (mod i 3)) (y (mod i 5)))
          (cond ((and (= 0 x) (= 0 y)) (display "fizzbuzz\n"))
                ((= 0 x) (display "fizz\n"))
                ((= 0 y) (display "buzz\n"))

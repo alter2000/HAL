@@ -120,7 +120,7 @@ printEnv = liftIO . (putStrLn . ("ENV:\t" <>) . show . Env)
  -- [x] `(define (func p) expr)` -> `(define func (lambda (p) (expr)))`
  -- [x] `(let ((a 1) (b 2)) (+ a b))` -> `((lambda (a b) (+ a b)) 1 2)`
 applyRewriteRules :: AST' -> AST'
-applyRewriteRules = rewrite . outF
+applyRewriteRules = cata rewrite
 
 rewrite :: ASTF AST' -> AST'
 rewrite (List [Fix(Atom "define"), Fix(List (Fix(Atom fname) : args)), body])
