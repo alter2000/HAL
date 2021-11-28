@@ -5,7 +5,7 @@ module Util
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO
 import Control.Exception
-import System.Console.Haskeline
+import System.Console.Haskeline hiding (Completion(..))
 import Control.Arrow
 
 import Control.Monad
@@ -59,7 +59,7 @@ handleInput i env | filter (not . isSpace) i == "" = pure (env, True)
       Left ex -> pExcept pp (pure (env, True)) ex
       Right ast -> handle (except >>> (>> pure (env, True))) $ do
         (a', e') <- runStep ast env
-        pp (show a') >> pure (e', True)
+        pp (show a') >> pp "\n" >> pure (e', True)
 
 prettyPrintEnv :: Env -> InputT IO ()
 prettyPrintEnv (Env e) = liftIO . mapM_ putStrLn . showKeyVal $ M.toList e

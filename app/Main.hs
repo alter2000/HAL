@@ -1,10 +1,10 @@
 module Main where
 
-import Control.Exception as E
+import Control.Exception ( handle )
 import System.Environment ( getArgs )
 
-import Lib.AST
-import Util
+import Lib.AST ( primEnv )
+import Util ( halt, interpret, repl )
 
 main :: IO ()
 main = handle halt $ getArgs >>= \allArgs -> case allArgs of
@@ -12,7 +12,7 @@ main = handle halt $ getArgs >>= \allArgs -> case allArgs of
   ["-i"] -> repl primEnv
   as | "-i" `elem` as && "-i" `isLast` as ->
     (dropI as >>= interpret primEnv) >>= repl . snd
-  as -> dropI as >>= interpret primEnv >> pure ()
+  as -> dropI as >>= interpret primEnv >>= print . fst
 
 isLast :: Eq a => a -> [a] -> Bool
 isLast _ [] = False

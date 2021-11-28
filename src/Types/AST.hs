@@ -27,7 +27,8 @@ instance Semigroup Env where
   -- 'Data.Map.union' is left-biased. This means that e.g. if one calls
   -- @e1 <> e2@ then all keys found on both @e1@ and @e2@ will be assigned the
   -- values in @e2@.
-  (<>) = (Env .) . (flip M.union `on` getEnv)
+  -- (<>) = (Env .) . (flip M.union `on` getEnv)
+  (<>) = (Env .) . ((<>) `on` getEnv)
 
 instance Monoid Env where mempty = Env mempty
 
@@ -42,7 +43,7 @@ data ASTF r = Atom !VarName
             | List ![r]
             | DottedList ![r] !r
             -- lambda grabs closure from current env (a la python)
-            | Builtin (Func (StateT Env (ReaderT Env IO)))
+            | Builtin (Func Interp)
             | Lambda { fnArgs :: ![VarName]
                      , fnBody :: !r
                      , fnEnv  :: Env }
