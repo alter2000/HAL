@@ -51,8 +51,6 @@ alg (List [Fix(Atom "lambda"), Fix(List params), body]) =
 alg (List (Fix(Builtin (Func a)):as)) = a as
 alg all'@(List (Fix x : xs)) = do
   (Fix var) <- alg x
-  liftIO $putStrLn$ "\nIN LIST EVAL\t" <> show all' <> "\tGOT\t" <> show var
-  liftIO $putStrLn$ "ARGS" <> show xs
   case var of
     (Builtin (Func f)) -> f xs
     l@Lambda{} -> do
@@ -169,10 +167,12 @@ quote [e] = pure . list $ atom "quote" : [e]
 quote as  = throw $ BadArguments nPos (length as) 1
 
 cond :: [ASTF AST'] -> Interp AST'
-cond ((List [Fix a, b]):rest) = alg a >>= \x -> case x of
-  Fix (Bool True) -> pure b
-  Fix (Bool False) -> cond rest
-  _ -> throw $ TypeMismatch nPos "cond only handles bools"
+cond ((List [Fix a, Fix b]):rest) = do
+  x <- outF <$> alg a
+  case x of
+    Bool  True -> alg b
+    Bool False -> cond rest
+    _ -> throw $ TypeMismatch nPos "cond only handles bools"
 cond _ = throw $ TypeMismatch nPos "cond only handles bools"
 
 -- TODO: really need to handle 'quote'?
@@ -247,8 +247,12 @@ eqAll (Bool a)  (Bool b) = pure $ bool $ a == b
 eqAll (Int a)  (Int b) = pure $ bool $ a == b
 eqAll ((List [Fix(Atom "quote"), Fix(List [])]))
       ((List [Fix(Atom "quote"), Fix(List [])])) = pure $ bool True
+eqAll ((List [Fix(Atom "quote"), Fix(List _)]))
+      ((List [Fix(Atom "quote"), Fix(List _)])) = pure $ bool False
 eqAll ((List [Fix(Atom "quote"), Fix(Atom a)]))
       ((List [Fix(Atom "quote"), Fix(Atom b)])) = pure $ bool $ a == b
+-- eqAll ((List [Fix(Atom "quote"), Fix a]))
+--       ((List [Fix(Atom "quote"), Fix b])) = eqAll a b
 eqAll DottedList{} DottedList{} = pure $ bool False
 eqAll a b = do
   x <- alg a
