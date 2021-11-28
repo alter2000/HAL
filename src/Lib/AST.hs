@@ -40,32 +40,32 @@ alg (Builtin b) = pure $ mkBuiltin b
 alg (List [Fix(Atom "quote"), Fix(List [])]) = pure $ mkQuote $ list []
 alg (List [Fix(Atom "quote"), a]) = pure a
 
-alg (List [Fix(Atom "define"), Fix var, Fix def]) = do
-  isParams var
-  def' <- outF <$> alg def
-  evalCtx [var] [def'] var
-  pure (Fix var)
+alg (List [Fix(Atom "define"), Fix var, Fix def]) =
+  isParams var >> alg def >> evalCtx [var] [def] var >> pure (Fix var)
 alg (List [Fix(Atom "lambda"), Fix(List params), body]) =
   func (getAtom . outF <$> params) body <$> pullEnv
 
 alg (List [Fix(Atom "cdr"), Fix(List [Fix(Atom "quote"),
   Fix(List (_:xs))])]) = pure $ list xs
 alg (List [Fix(Atom "cdr"), Fix arg@(List (x:xs))]) = case outF x of
-  Atom  _ -> alg arg >>= \v -> alg . List $ [atom "cdr", v]
+  Atom  _ -> alg arg >>= alg . List . (atom "cdr":) . pure
   _ -> pure $ list xs
 
 alg (List [Fix(Atom "car"), Fix(List [Fix(Atom "quote"),
   Fix(List (x:_))])]) = pure x
 alg (List [Fix(Atom "car"), Fix arg@(List (x:_))]) = case outF x of
-  Atom  _ -> alg arg >>= \v -> alg . List $ [atom "car", v]
+  Atom  _ -> alg arg >>= alg . List . (atom "car":) . pure
   _ -> pure x
 
+-- alg (List (Fix(Atom "cond") :rest)) = cond (outF <$> rest)
+
 alg (List (Fix(Builtin (Func a)):as)) = a as
-alg (List (Fix x : xs)) = alg x >>= \var -> case outF var of
-  (Builtin (Func f)) -> f xs
-  l@Lambda{} -> do
-    applyLambda l xs
-  x' -> throw $ TypeMismatch nPos $ show x' <> ": not a function"
+alg (List (Fix x : xs)) = alg x >>= \(Fix var) -> case var of
+    (Builtin (Func f)) -> f xs
+    l@Lambda{} -> do
+      vs <- traverse (alg . outF) xs
+      applyLambda l vs
+    x' -> throw $ TypeMismatch nPos $ show x' <> ": not a function"
 alg (List []) = throw $ TypeMismatch nPos "cannot eval empty list"
 
 applyLambda :: ASTF (Fix ASTF) -> [Fix ASTF] -> Interp AST'
@@ -80,10 +80,9 @@ applyCtx vars defs body = local (<> newEnv vars defs) (alg body)
 
 evalCtx :: [ASTF AST'] -> [ASTF AST'] -> ASTF AST' -> Interp AST'
 evalCtx vars defs body = do
-  _defs' <- fmap outF <$> traverse alg defs
-  modify (<> newEnv vars defs)
-  (_oldEnv, prevEnv) <- liftA2 (,) get ask
-  local (<> prevEnv) (alg body)
+  defs' <- fmap outF <$> traverse alg defs
+  modify (<> newEnv vars defs')
+  alg body
 
 isParams :: ASTF AST' -> Interp (ASTF AST')
 isParams (Atom a) = pure $ Atom a
@@ -101,7 +100,7 @@ getAtom _ = throw $ TypeMismatch nPos "Env: expected atom"
 
 findAtom :: VarName -> Interp AST'
 findAtom a = maybe (throw $ UnboundVar nPos a)
-  pure . M.lookup a . getEnv =<< liftA2 (<>) get ask
+  pure . M.lookup a . getEnv =<< pullEnv
 
 newEnv :: [ASTF a] -> [ASTF AST'] -> Env
 newEnv vars = packEnv . zipWith ((,) . getAtom) vars
@@ -111,9 +110,9 @@ pullEnv :: Interp Env
 pullEnv = liftA2 (<>) get ask
 
 printEnv :: Interp ()
-printEnv = pullEnv >>= liftIO
-  . (putStrLn . ("ENV:\t" <>) . show . Env)
-  . (`M.difference` builtins) . getEnv
+printEnv = liftIO . (putStrLn . ("ENV:\t" <>) . show . Env)
+  . (`M.difference` builtins)
+  . getEnv =<< pullEnv
 
 -- }}}
 
@@ -172,15 +171,17 @@ primEnv :: Env
 primEnv = Env $ mkBuiltin <$> builtins
 
 quote :: [AST'] -> Interp AST'
-quote [Fix(List xs)] = pure . list $ atom "quote" : xs
-quote [e] = pure . list $ atom "quote" : [e]
+-- quote [Fix(List xs)] = pure . list $ atom "quote" : xs
+quote [e] = pure $ mkQuote e
 quote as  = throw $ BadArguments nPos (length as) 1
 
 cond :: [ASTF AST'] -> Interp AST'
-cond ((List [Fix a, Fix b]):rest) = alg a >>= \x -> case outF x of
-  Bool  True -> alg b
-  Bool False -> cond rest
-  _ -> throw $ TypeMismatch nPos "cond only handles bools"
+cond ((List [Fix a, Fix b]):rest) = do
+  x <- outF <$> alg a
+  case x of
+    Bool  True -> alg b
+    Bool False -> cond rest
+    _ -> throw $ TypeMismatch nPos "cond only handles bools"
 cond _ = throw $ TypeMismatch nPos "cond only handles bools"
 
 -- TODO: really need to handle 'quote'?
@@ -191,14 +192,17 @@ car (   (List(a          :_)):_) = pure a
 car _ = pure $ list []
 
 cdr :: [ASTF AST'] -> Interp AST'
--- cdr (Fix    (List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
+cdr (   (List[Fix(Atom "quote"), Fix(List(_:r))]):_) = pure $ list r
 cdr (a'@(List(Fix(Atom _):_)):_) = alg $ List [atom "cdr", Fix a']
 cdr (   (List(          _:r)):_) = pure $ list r
 cdr _ = pure $ list []
 
 cons :: [AST'] -> Interp AST'
-cons [a, Fix (List bs)] = pure $ list $ a:bs
-cons [a, b]             = pure $ list [a, b]
+cons [a, Fix b@(List _)] = alg b >>= \(Fix b') -> case b' of
+  List xs -> pure . list $ a : xs
+  DottedList xs x -> pure $ dlist (a:xs) x
+  bs -> pure $ dlist [a] (Fix bs)
+cons [a, b] = pure $ list [a, b]
 cons as = throw $ BadArguments nPos 2 (length as)
 
 display :: (String -> IO ()) -> [AST'] -> Interp AST'
@@ -208,9 +212,19 @@ display pF a = do
   pure . mkQuote $ list []
 
 printAST ::(String -> IO ()) -> Fix ASTF -> IO ()
-printAST pF (Fix(List[Fix (Atom "quote"), x])) = pF $ '\'' : show x
-printAST pF (Fix(Str x)) = pF x
-printAST pF x = pF $ show x
+printAST pF = pF . revCataM astToStr
+
+astToStr :: ASTF (Fix ASTF) -> String
+astToStr (List [Fix(Atom "quote"), Fix x]) = '\'' : astToStr x
+astToStr (Atom x) = show $ atom x
+astToStr  (Int x) = show $ int x
+astToStr  (Str x) = show $ str x
+astToStr (Bool x) = show $ bool x
+astToStr (Builtin x) = show $ mkBuiltin x
+astToStr (Lambda x y z) = show $ Fix $ Lambda x y z
+astToStr (DottedList xs x) =
+    "(" <> unwords (astToStr . outF <$> xs) <> " . " <> show x <> ")"
+astToStr (List xs) = "(" <> unwords (astToStr . outF <$> xs) <> ")"
 
 isAtom :: [ASTF AST'] -> Interp AST'
 isAtom [List[Fix(Atom "quote"), Fix(List [])]] = pure $ bool True
