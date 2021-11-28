@@ -239,7 +239,7 @@ astToStr (List xs) = "(" <> unwords (astToStr . outF <$> xs) <> ")"
 isAtom :: [ASTF AST'] -> Interp AST'
 isAtom [List[Fix(Atom "quote"), Fix(List [])]] = pure $ bool True
 isAtom [List[Fix(Atom "quote"), Fix(Atom _)]] = pure $ bool True
-isAtom [a@Atom{}] = alg a >>= \(Fix v) -> isAtom [v]
+isAtom [Atom{}] = pure $ bool True
 isAtom  [Int{}] = pure $ bool True
 isAtom [Bool{}] = pure $ bool True
 isAtom  [Str{}] = pure $ bool True

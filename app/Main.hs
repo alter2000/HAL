@@ -13,7 +13,7 @@ main = handle halt $ getArgs >>= \allArgs -> case allArgs of
   as | "-i" `elem` as && "-i" `isLast` as ->
     (dropI as >>= interpret primEnv) >>= repl . snd
   as -> dropI as >>= interpret primEnv
-    >>= (printAST putStrLn . fst) >> pure ()
+    >>= (printAST putStrLn . fst)
 
 isLast :: Eq a => a -> [a] -> Bool
 isLast _ [] = False
